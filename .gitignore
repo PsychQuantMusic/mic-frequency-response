@@ -1,0 +1,23 @@
+# === 原廠來源圖不進版控（版權）===
+# data/ 底下只收數位化後的 CSV + meta.yaml，原始頻響圖片留 local
+data/**/*.png
+data/**/*.jpg
+data/**/*.jpeg
+data/**/*.gif
+data/**/*.webp
+data/**/*.bmp
+data/**/*.tiff
+data/**/*.pdf
+data/**/source/
+
+# === 一般忽略 ===
+.DS_Store
+node_modules/
+*.log
+.venv/
+__pycache__/
+*.pyc
+
+# === scratch / 暫存 ===
+scratch/
+tmp/
