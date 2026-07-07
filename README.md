@@ -82,4 +82,6 @@ license_note: "數據為事實資料（frequency→dB），非原圖之重製。
 
 ## 狀態
 
-🚧 建置中 — 見 GitHub Issues 追蹤各 phase 進度。
+- **Phase 1（網頁 Digitizer）**：✅ 完成（#2）— `digitizer/`，18 unit tests + 合成圖回歸測試 + Codex 跨模型盲驗。用法見 [`digitizer/README.md`](digitizer/README.md)。
+- **Phase 2**（robust tracing，真實髒圖）：#3｜**首批真實資料入庫**：#4。
+- 見 GitHub Issues 追蹤各 phase 進度。
