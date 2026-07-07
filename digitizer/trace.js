@@ -30,8 +30,9 @@ export function colorDistance(c1, c2) {
  */
 export function traceCurve({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance }) {
   const t = makeTransform(calib);
-  const x0 = xStart ?? 0;
-  const x1 = xEnd ?? width - 1;
+  // 邊界防呆：clamp 到 [0, width-1] 並整數化（decoupled core 不假設 caller 已 clamp）
+  const x0 = Math.max(0, Math.round(xStart ?? 0));
+  const x1 = Math.min(width - 1, Math.round(xEnd ?? width - 1));
   const points = [];
 
   for (let x = x0; x <= x1; x++) {
@@ -39,7 +40,9 @@ export function traceCurve({ pixelAt, width, height, xStart, xEnd, calib, target
     let sumY = 0;
     let count = 0;
     for (let y = 0; y < height; y++) {
-      if (colorDistance(pixelAt(x, y), targetColor) <= tolerance) {
+      const c = pixelAt(x, y);
+      if (c[3] < 128) continue; // 透明像素不計入（避免透明區誤 match 不透明曲線色）
+      if (colorDistance(c, targetColor) <= tolerance) {
         sumY += y;
         count++;
       }
@@ -49,5 +52,7 @@ export function traceCurve({ pixelAt, width, height, xStart, xEnd, calib, target
     points.push({ freq_hz: d.freq_hz, level_db: d.level_db });
   }
 
+  // 保證頻率遞增（與 JSDoc / csv.js 的假設一致；即使 calib 左右相反也成立）
+  points.sort((a, b) => a.freq_hz - b.freq_hz);
   return points;
 }

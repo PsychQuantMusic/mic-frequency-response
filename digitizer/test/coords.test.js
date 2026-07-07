@@ -49,3 +49,28 @@ test('degenerate calibration (coincident points) throws', () => {
     })
   );
 });
+
+test('rejects non-positive or non-finite frequency values', () => {
+  const bad = (fv) => ({
+    freq: { p1: { px: 100, value: fv }, p2: { px: 1100, value: 20000 } },
+    db: { p1: { py: 50, value: 0 }, p2: { py: 450, value: -40 } },
+  });
+  assert.throws(() => makeTransform(bad(0)));
+  assert.throws(() => makeTransform(bad(-20)));
+  assert.throws(() => makeTransform(bad(NaN)));
+});
+
+test('rejects equal frequency or equal dB calibration values', () => {
+  assert.throws(() =>
+    makeTransform({
+      freq: { p1: { px: 100, value: 20 }, p2: { px: 1100, value: 20 } },
+      db: { p1: { py: 50, value: 0 }, p2: { py: 450, value: -40 } },
+    })
+  );
+  assert.throws(() =>
+    makeTransform({
+      freq: { p1: { px: 100, value: 20 }, p2: { px: 1100, value: 20000 } },
+      db: { p1: { py: 50, value: 0 }, p2: { py: 450, value: 0 } },
+    })
+  );
+});

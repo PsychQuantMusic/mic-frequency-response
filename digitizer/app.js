@@ -28,8 +28,8 @@ function pixelAt(x, y) {
 
 function canvasXY(e) {
   const rect = canvas.getBoundingClientRect();
-  const x = Math.round((e.clientX - rect.left) * (canvas.width / rect.width));
-  const y = Math.round((e.clientY - rect.top) * (canvas.height / rect.height));
+  const x = Math.floor((e.clientX - rect.left) * (canvas.width / rect.width));
+  const y = Math.floor((e.clientY - rect.top) * (canvas.height / rect.height));
   return { x: Math.max(0, Math.min(canvas.width - 1, x)), y: Math.max(0, Math.min(canvas.height - 1, y)) };
 }
 
@@ -47,7 +47,9 @@ $('file').addEventListener('change', (e) => {
     $('export').disabled = true;
     $('count').textContent = '尚未追蹤';
     setStatus(`已載入 ${canvas.width}×${canvas.height}。填入校準值後逐一「在圖上點」。`);
+    URL.revokeObjectURL(img.src); // 已 decode 到 canvas，釋放 object URL
   };
+  img.onerror = () => { URL.revokeObjectURL(img.src); setStatus('圖片載入失敗。'); };
   img.src = URL.createObjectURL(file);
 });
 
@@ -94,9 +96,12 @@ $('trace').addEventListener('click', () => {
   if ([calib.x1.px, calib.x2.px, calib.y1.py, calib.y2.py].some((v) => v == null)) {
     setStatus('4 個校準點都要在圖上點過。'); return;
   }
-  if ([x1v, x2v, y1v, y2v].some((v) => Number.isNaN(v))) {
-    setStatus('4 個校準值（頻率 / dB）都要填。'); return;
+  if ([x1v, x2v, y1v, y2v].some((v) => !Number.isFinite(v))) {
+    setStatus('4 個校準值（頻率 / dB）都要填有效數字。'); return;
   }
+  if (x1v <= 0 || x2v <= 0) { setStatus('校準頻率必須大於 0。'); return; }
+  if (x1v === x2v) { setStatus('兩個 X 校準頻率不能相同。'); return; }
+  if (y1v === y2v) { setStatus('兩個 Y 校準 dB 不能相同。'); return; }
   if (!targetColor) { setStatus('先「點曲線取色」。'); return; }
 
   const transformCalib = {
@@ -145,5 +150,5 @@ $('export').addEventListener('click', () => {
   a.href = URL.createObjectURL(blob);
   a.download = 'frequency-response--curve.csv';
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 0);
 });

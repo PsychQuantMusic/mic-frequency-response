@@ -16,6 +16,8 @@ export function toCSV(points, opts = {}) {
   const dbDigits = opts.dbDigits ?? 2;
   const lines = ['freq_hz,level_db'];
   for (const p of points) {
+    // 略過非 finite 點（NaN / Infinity），避免非法校準污染輸出
+    if (!Number.isFinite(p.freq_hz) || !Number.isFinite(p.level_db)) continue;
     lines.push(`${fmt(p.freq_hz, freqDigits)},${fmt(p.level_db, dbDigits)}`);
   }
   return lines.join('\n') + '\n';

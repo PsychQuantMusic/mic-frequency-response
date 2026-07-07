@@ -87,3 +87,39 @@ test('regression: recovers a known parabolic curve within tolerance', () => {
   }
   assert.ok(maxErr < 0.5, `max level error ${maxErr.toFixed(3)} dB exceeds tolerance`);
 });
+
+test('output is frequency-ascending even with reversed x calibration', () => {
+  // 高頻在左、低頻在右的校準（px 方向與頻率方向相反）
+  const revCalib = {
+    freq: { p1: { px: 1100, value: 20 }, p2: { px: 100, value: 20000 } },
+    db: { p1: { py: 50, value: 0 }, p2: { py: 450, value: -40 } },
+  };
+  const pixelAt = (x, y) => (y === 200 && x >= 100 && x <= 1100 ? RED : WHITE);
+  const pts = traceCurve({
+    pixelAt, width: 1200, height: 500,
+    xStart: 100, xEnd: 1100, calib: revCalib, targetColor: RED, tolerance: 10,
+  });
+  assert.ok(pts.length > 990);
+  for (let i = 1; i < pts.length; i++) {
+    assert.ok(pts[i].freq_hz > pts[i - 1].freq_hz, 'freq must be strictly increasing after sort');
+  }
+});
+
+test('clamps out-of-range xStart/xEnd to image bounds', () => {
+  const pixelAt = (x, y) => (y === 200 ? RED : WHITE);
+  const pts = traceCurve({
+    pixelAt, width: 1200, height: 500,
+    xStart: -50, xEnd: 99999, calib, targetColor: RED, tolerance: 10,
+  });
+  assert.equal(pts.length, 1200); // clamp 到 [0, 1199]
+});
+
+test('transparent pixels do not match an opaque target color', () => {
+  const TRANSPARENT_BLACK = [0, 0, 0, 0];
+  const pixelAt = (x, y) => (x === 500 && y === 200 ? TRANSPARENT_BLACK : WHITE);
+  const pts = traceCurve({
+    pixelAt, width: 1200, height: 500,
+    xStart: 400, xEnd: 600, calib, targetColor: [0, 0, 0, 255], tolerance: 10,
+  });
+  assert.equal(pts.length, 0); // 透明黑 RGB 距離為 0，但 alpha guard 擋掉
+});

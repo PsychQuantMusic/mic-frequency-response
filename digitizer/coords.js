@@ -21,7 +21,16 @@ export function makeTransform(calib) {
   const dpy1 = db.p1.py;
   const dpy2 = db.p2.py;
 
-  // 防呆：每軸兩個校準點不能重合，否則斜率為 0/0。
+  // 防呆：校準值 / 座標必須合法，否則會產生 NaN / Infinity / 除零。
+  if (![freq.p1.value, freq.p2.value].every((v) => Number.isFinite(v) && v > 0))
+    throw new Error('frequency calibration values must be finite and > 0');
+  if (freq.p1.value === freq.p2.value)
+    throw new Error('frequency calibration values must differ');
+  if (db.p1.value === db.p2.value)
+    throw new Error('dB calibration values must differ');
+  if (![fpx1, fpx2, dpy1, dpy2].every(Number.isFinite))
+    throw new Error('calibration pixel coordinates must be finite');
+  // 每軸兩個校準點不能重合，否則斜率為 0/0。
   if (fpx2 === fpx1) throw new Error('frequency calibration points share the same px');
   if (dpy2 === dpy1) throw new Error('dB calibration points share the same py');
 

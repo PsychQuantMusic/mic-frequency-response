@@ -18,3 +18,13 @@ test('rounds to configured precision and trims trailing zeros', () => {
   const csv = toCSV([{ freq_hz: 20.00012, level_db: -3.2049 }], { freqDigits: 3, dbDigits: 2 });
   assert.equal(csv, 'freq_hz,level_db\n20,-3.2\n');
 });
+
+test('skips non-finite points (NaN / Infinity)', () => {
+  const csv = toCSV([
+    { freq_hz: 20, level_db: -3.2 },
+    { freq_hz: NaN, level_db: 0 },
+    { freq_hz: Infinity, level_db: 1 },
+    { freq_hz: 1000, level_db: -Infinity },
+  ]);
+  assert.equal(csv, 'freq_hz,level_db\n20,-3.2\n');
+});
