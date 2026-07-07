@@ -1,0 +1,10 @@
+{
+  "name": "mic-frequency-response-digitizer",
+  "version": "0.1.0",
+  "description": "Phase 1 web Digitizer — semi-automatic pixel tracing of mic frequency-response curves into CSV",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}
