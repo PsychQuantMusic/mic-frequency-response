@@ -1,0 +1,38 @@
+brand: Rode
+model: NT1
+type: condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://edge.rode.com/pdf/products/71/NT1_DS_V05.pdf
+  page: 2
+  chart: "Frequency Response + Polar Pattern (dB rel 1V/Pa)"
+  retrieved: 2026-07-08
+digitized_by: che (via Claude)
+digitized_on: 2026-07-08
+method: >
+  AI 視覺判讀官方 datasheet（p.2）。FR 曲線為紅色，用 red-channel column-scan 精抽；
+  polar 為全圓圖（0° 在上、90° 左、270° 右），三色曲線 500Hz(red)/1000Hz(blue)/4000Hz(green)，
+  用 per-color ray-scan 讀取。radial scale 實測為線性（環距等寬 7.5px/dB，0dB@r187、外圈 +5、圓心 -25dB）。
+  FR 與 polar 同為 "dB rel 1V/Pa" 參考，FR 平坦區恰在 0dB 網格線、polar 0°(on-axis)=0dB。best-effort：FR ±0.5 dB、polar ±1.5~2 dB。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "on-axis (0°) typical response; smooth flat with HF presence lift ~+4.4 dB @ 10 kHz"
+  - { file: polar-pattern--500hz.csv,  kind: polar-pattern, condition: "500 Hz (p.2 polar, red)" }
+  - { file: polar-pattern--1000hz.csv, kind: polar-pattern, condition: "1000 Hz (polar, blue/cyan)" }
+  - { file: polar-pattern--4000hz.csv, kind: polar-pattern, condition: "4000 Hz (polar, green; widest front, deepest rear lobe)" }
+polar_read_note: >
+  AI 視覺判讀 + per-color ray-scan，30° 取樣、精度 ±1.5~2 dB。0° = on-axis（Rode 圖頂），180° = rear（圖底）；
+  發表圖左右對稱，記 0–180° 半平面。cardioid 帶小型 rear lobe（180° 為 lobe ~-15~-24、深 null 在 ~150°）。
+  radial scale 為線性 dB（非振幅），環距 7.5px/dB。0°(on-axis) 因 thick-stroke 外緣量化偏 +1.4，已歸一至 0dB
+  （與 FR 的 1V/Pa 參考一致）。
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py, #6/#7)"
+  date: 2026-07-08
+  result: >
+    FR (31 pts): median |dev| 0.033 dB, max 0.208 dB — red-channel scan 後全數 ±1.0 內。
+    Polar (500/1000/4000 Hz): 各僅 2 點超 ±1.0（0° thick-stroke 外緣 +1.4、及單一過渡點 ≤1.7），
+    scale 線性經環距驗證，within declared ±2 dB。
+license_note: >
+  數據為事實資料（frequency→dB / angle→dB），從公開官方 Rode datasheet 判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo。
