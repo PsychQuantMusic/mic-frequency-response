@@ -1,0 +1,42 @@
+brand: Audix
+model: i5
+type: dynamic
+polar_patterns: [cardioid]
+frequency_range_hz: [50, 16000]   # published spec; drawn curve spans ~39 Hz – 16.4 kHz
+source:
+  url: https://audixusa.com/products/i5
+  spec_sheet: https://audixusa.com/cdn/shop/files/i5_v3_0516.pdf
+  page: 2
+  chart: "FREQUENCY RESPONSE"
+  version: "ver 3.0 05-16"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Headless seeded-viterbi trace (digitizer/cli.js) on the official spec-sheet
+  FREQUENCY RESPONSE chart, rendered from the vendor PDF at 400 dpi and cropped to
+  the plot area. Single blue curve (RGB ~48,50,146) on a black grid → colored-curve
+  isolation via --target-color, so the black gridlines/labels are excluded natively.
+  1099 traced points reduced to 102 by --simplify 0.05 (dB perceptually-lossless
+  Douglas–Peucker). x-range bounded to the drawn blue extent (px 187–1287 ≈ 39 Hz–16.4 kHz).
+  Calibration cross-checked against actual read axis-label values (not inferred from log
+  spacing): X anchored on box borders 20 Hz@px67.5 / 20 kHz@px1322.5, verified against
+  detected gridlines 100 Hz@360, 200 Hz@485.5, 500 Hz@652, 2 kHz@904 and label centers;
+  Y calibrated off the thin inner gridlines +5@86.5 / -5@248.5 (16.2 px/dB, symmetric
+  about 0@167.5) rather than the thick box-border lines. Feature sanity check confirms
+  correct calibration: +5.5 dB low hump ~130 Hz, dip to ~0 dB ~800 Hz–1 kHz, +9 dB
+  presence peak ~5.5 kHz, steep HF rolloff past 16 kHz — matches the published i5 shape.
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response (as published)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated --target-color, #14)"
+  date: 2026-07-09
+  result: >
+    102 points, all matched, 0 gaps, 0 ambiguous. Per-point median |dev| 0.003 dB,
+    max 0.243 dB. Interpolated redraw-fidelity (per-column along the linear-interp
+    polyline in log-f space): 1097 measured columns, median 0.012 dB, max 0.243 dB,
+    0 gaps, 0 ambiguous. Visual overlay confirms green markers track the blue curve
+    across the full span (both rolloff tails, hump, dip, presence peak).
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo，僅記來源 URL。
