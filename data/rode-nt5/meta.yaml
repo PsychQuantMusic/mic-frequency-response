@@ -1,0 +1,35 @@
+brand: Rode
+model: NT5
+type: condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://edge.rode.com/pdf/products/79/NT5_Datasheet_05_FA.pdf
+  page: 2
+  chart: "Frequency Response (dB re 1 V/Pa)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  FR 曲線以 seeded-viterbi trace 全解析度數位化（官方 datasheet p.2，紅色單曲線
+  RGB≈238,36,56，--target-color 排除黑色網格與軸標文字），--simplify 0.05 dB
+  感知無損降採樣（101 點）。校準用內部主網格線實讀軸標值（非 log 型態外推）：
+  X 100Hz@px513 / 10000Hz@px1503（495 px/decade），以 1000Hz@px1009 + 20Hz/20000Hz
+  邊框線三線交叉核驗一致；Y 10dB@px196 / -10dB@px378（9.1 px/dB），0dB 預測 px287 與
+  偵測相符。x-range 上限截於 20kHz 內部校準位置（px1652）以貼合 published 範圍
+  （邊框右緣繪製略寬 ~7px，未外推至 >20kHz）。曲線實繪自 ~36Hz 起（圖上未繪 20-36Hz 段）。
+  重繪保真驗證（overlay --interpolated，沿內插折線逐欄比對）：median 0.002 / max 0.052 dB
+  over 1357 measured cols，0 gaps、0 ambiguous（--target-color 紅，網格天然排除）。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "on-axis (0°) typical response; smooth flat mid, broad HF presence lift peaking ~+5.4 dB @ 13.8 kHz, LF rolloff from ~150 Hz (−12.9 dB @ 36 Hz, curve drawn start)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, red --target-color)"
+  date: 2026-07-09
+  result: >
+    FR (101 pts): point-wise median |dev| 0.003 dB, max 0.005 dB;
+    interpolated 1357 cols median 0.002 dB, max 0.052 dB, 0 gaps, 0 ambiguous.
+    全數 ±1.0 dB 內。Feature cross-check: presence lift lands at 13.8 kHz（5-15 kHz region，符合 NT5 特徵）。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 Rode datasheet（NT5_Datasheet_05_FA.pdf p.2）判讀，
+  非原圖之重製。原圖（PDF/PNG）未收錄進 repo。
