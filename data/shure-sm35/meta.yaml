@@ -1,0 +1,47 @@
+brand: Shure
+model: SM35
+type: condenser            # electret condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [40, 20000]
+source:
+  url: https://content-files.shure.com/Pubs/SM35/sm35-specification-sheet-english.pdf
+  page: 1
+  chart: "Frequency Response (solid = 0.6 m / 2 ft from sound source)"
+  retrieved: 2026-07-09
+  note: >
+    Official Shure SM35 product specification sheet (©2015 Shure Incorporated).
+    Same capsule FR applies to SM35-TQG (TA4F) and SM35-XLR variants.
+    Alternate official source with the identical chart:
+    https://pubs.shure.com/view/guide/SM35/en-US.pdf (SM35 User Guide).
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi headless trace（digitizer/cli.js --strategy viterbi）以 --simplify 0.05 dB
+  感知無損降採樣（267 點）。原圖為官方 spec sheet 的 400dpi render、crop 至 plot area。
+  校準：X 軸 log（100 Hz=x387、10 kHz=x1048；經第三條 20 kHz=x1149 覆核，331.67 px/decade 一致），
+  Y 軸 linear（+20 dB=y159、-30 dB=y458，detect-lines 偵得 11 條 dB 網格線）。
+  校準非循環：交叉核對已發表特徵——presence rise（~+5 dB）落在 7-9 kHz、HF dip 落在 ~13-15 kHz，
+  符合 performance headset condenser 特性；軸標籤值以視覺實讀（未用 log 型態推）。
+  圖為雙曲線（solid = 0.6 m/2 ft 遠場；dashed = 1 cm 近距 proximity-boosted）。
+  本 CSV 只數位化 solid（0.6 m）曲線——即 mic 內建 tailored 響應（gentle low rolloff + presence rise）；
+  dashed 為近距使用條件（近接效應低頻抬升），非「typical」tailored 響應，未收錄。
+  solid 為連續實線、dashed 為虛線（有 gap），viterbi 連續性天然偏好 solid、不會誤跳 dashed。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response, 0.6 m (2 ft) from sound source (as published, solid curve)"
+verification:
+  method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14)"
+  date: 2026-07-09
+  result: >
+    267 points, 267 matched, 0 gaps. Interpolated (826 measured cols): median 0.04 dB.
+    視覺 overlay（ground truth）完美貼合 solid 曲線全段——低頻 rolloff(-17 dB@50 Hz)、
+    升至 0 dB、平坦中頻、presence rise(~+5 dB @ 4-10 kHz)、HF dip(~-5 dB @ 13-15 kHz)、
+    收於 ~-4 dB @ 20 kHz——綠十字全程不離 solid、未跳上 dashed。
+    以 ±9 px 緊窗（不可及 ~20 px 外的 dashed）獨立量 solid 保真度：median 0.081 / max 0.415 dB（264 點，
+    max 屬線寬量化、落在平坦 0 dB 段）。
+  caveat: >
+    工具回報 interpolated max 5.44 dB，僅侷限於 2 欄（1003/1010 Hz，正落在 1 kHz 垂直網格線欄），
+    該欄同時存在尚未合流的 dashed 曲線像素（~+5 dB），驗證器在網格線欄鎖到 dashed 而非 solid——
+    多曲線 + 垂直網格線的已知 match 歧義（非資料誤差；CSV 該處值 ~0 dB 為正確 solid 值，視覺 overlay 佐證）。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo。
