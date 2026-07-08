@@ -62,6 +62,9 @@ function matchingRuns({ pixelAt, x, height, targetColor, tolerance }) {
  *   種子點不在任何合格 run 附近（±maxJump）→ 回空陣列（誠實拒絕，UI 應提示重新取色）。
  */
 export function traceCurve({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance, seed, maxJump = 12, maxRunSize = null, strategy = 'greedy' }) {
+  if (!(maxJump > 0)) {
+    throw new Error(`maxJump must be > 0 (got ${maxJump}) — #11 起 maxJump 進轉移成本分母`);
+  }
   if (strategy !== 'greedy' && strategy !== 'viterbi') {
     throw new Error(`unknown strategy: ${strategy}（拼字錯誤會靜默退回 greedy —— cross-model verify LOW）`);
   }

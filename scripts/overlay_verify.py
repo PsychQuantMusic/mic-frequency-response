@@ -196,7 +196,7 @@ def main():
     ap.add_argument("--tolerance", type=float, default=1.0)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--target-color", default=None,
-                    help="彩色曲線模式：R,G,B——sampler 以 RGB 色距 ≤ --color-tolerance 判 match（取代灰階暗度）。顏色是最強的曲線/網格區分特徵（#13）")
+                    help="彩色曲線模式：R,G,B——sampler 以 RGB 色距 ≤ --color-tolerance 判 match（取代灰階暗度）。顏色是最強的曲線/網格區分特徵（#13）。注意：鏈接疊圖時，舊標記色與本次 target 的 RGB 距離需 > --color-tolerance（灰階模式的 lum>135 規則不適用於色距），否則從乾淨原圖重疊")
     ap.add_argument("--color-tolerance", type=float, default=60.0)
     ap.add_argument("--marker-color", default="0,220,90", help="標記色 R,G,B（多曲線累積疊圖用不同色；luminance 需 >135，否則鏈接疊圖時舊標記會被當暗像素自污染量化）")
     ap.add_argument("--detect-lines", action="store_true")
