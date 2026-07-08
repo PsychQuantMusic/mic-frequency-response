@@ -1,0 +1,52 @@
+brand: Electro-Voice
+model: RE20
+type: dynamic
+polar_patterns: [cardioid]
+frequency_range_hz: [45, 18000]
+source:
+  url: https://products.electrovoice.com/binary/RE20_Engineering_Data_Sheet.PDF
+  page: 2
+  chart: "Frequency Response (0° on-axis, bass-tilt switch OFF = flat/full response)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Headless seeded-viterbi trace (digitizer/cli.js) of the official EV RE20 Engineering
+  Data Sheet frequency-response chart, page 2. The chart is a multi-condition plot with
+  four curves (0° and 180°, each with a solid = switch-OFF and dashed = bass-tilt-switch-ON
+  line). Only the 0° SOLID curve (essentially flat / full response, switch off) was
+  digitized, per the "digitize the flat/full response" instruction. Seeded on the 0°
+  solid in the flat mid region (avoiding the embedded "0°"/"(—)" text labels and vertical
+  gridlines); viterbi continuity kept the trace on the solid line without hopping onto the
+  dashed line, the same-color (black) gridlines, or the 180° cluster. Full-resolution trace
+  (1057 px-columns) reduced with --simplify 0.05 (dB-perceptual lossless, Douglas–Peucker
+  vertical variant) to 77 points.
+  Calibration read from axis LABEL VALUES (not inferred from log spacing): X anchored on the
+  100 Hz and 10 kHz decade gridlines (px 307 / 1143 in the plot-area crop; 418 px/decade,
+  cross-checked against 20/30/50/200/500/1k/2k/5k/20k lines); Y anchored on the horizontal
+  gridlines at 5 dB/division, with 0 dB set at the gridline the flat mid-band response rides
+  on (py 187 = 0 dB, py 354 = -10 dB).
+  Calibration confirmed by two independent published cross-checks from the same data
+  sheet's Architects'/Engineers' text (defeats log-shift circularity): interpolated trace
+  gives -3.06 dB at 45 Hz (spec: "down 3 dB at 45 Hz") and -2.9 dB at 18 kHz (spec:
+  "nominally down 3 dB at 18,000 Hz"). Both match.
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis (0°) response, bass-tilt switch OFF (flat/full response, as published)"
+verification:
+  method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, window 20 px ≈ ±1.2 dB)"
+  date: 2026-07-09
+  result: >
+    77 points, 0 gaps. Interpolated (per-column re-draw fidelity over 1052 measured columns):
+    median |dev| 0.018 dB, max |dev| 1.017 dB. Point-wise: median 0.03 dB, max 0.868 dB,
+    all 77 points within ±1.0 dB. 83 ambiguous columns (window filled by the black horizontal
+    gridline running parallel to the near-flat curve, plus vertical-gridline crossings) —
+    inherent to a black-gridline scanned chart; visual overlay confirms the trace sits on the
+    0° solid curve throughout with no curve/gridline/text confusion.
+  note: >
+    Chart is ground truth. The measured presence lift peaks ~+1.35 dB (7–10 kHz) above the
+    flat mid-band; the A&E text's nominal "broad 2.5 dB rise, 6,000–14,000 Hz" is a spec
+    target, not the plotted unit — reported values follow the plotted curve.
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 Engineering Data Sheet 圖判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo，只記來源 URL + 頁碼。
