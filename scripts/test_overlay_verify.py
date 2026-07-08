@@ -79,6 +79,56 @@ def run_verify(img, csvf, out):
     return json.loads(r.stdout)
 
 
+# ---------- polar 合成（#7） ----------
+
+PCX, PCY, PR0 = 300, 300, 250  # 圓心 + 0dB 外圈半徑；線性 5dB/50px → -20dB 圈 r=50
+
+
+def polar_level(angle_deg):
+    """已知答案曲線：類 cardioid，0°=0dB、90°≈-7、180°=-14。"""
+    return -7.0 * (1 - math.cos(math.radians(angle_deg)))
+
+
+def make_polar_synthetic(path):
+    img = Image.new("RGB", (600, 600), "white")
+    d = ImageDraw.Draw(img)
+    # 同色網格：等距圈（0,-5,-10,-15,-20）+ 每 30° 輻條（污染源）
+    for db in (0, -5, -10, -15, -20):
+        r = PR0 + db * 10  # slope = -20dB/-200px → 10px/dB... r = 250 + db*10（-20→50）
+        d.ellipse([PCX - r, PCY - r, PCX + r, PCY + r], outline="black", width=1)
+    for ang in range(0, 360, 30):
+        rad = math.radians(ang)
+        d.line([(PCX, PCY), (PCX + 250 * math.sin(rad), PCY - 250 * math.cos(rad))], fill="black", width=1)
+    # 已知曲線（粗 3px、0°=上、順時針）
+    prev = None
+    for ang in range(0, 361, 2):
+        r = PR0 + polar_level(ang) * 10
+        rad = math.radians(ang)
+        p = (PCX + r * math.sin(rad), PCY - r * math.cos(rad))
+        if prev:
+            d.line([prev, p], fill="black", width=3)
+        prev = p
+    img.save(path)
+
+
+def write_polar_csv(path, offset_db=0.0):
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["angle_deg", "level_db"])
+        for ang in range(0, 181, 30):
+            w.writerow([ang, round(polar_level(ang) + offset_db, 3)])
+
+
+def run_polar_verify(img, csvf, out):
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), str(img), str(csvf), "--polar",
+         "--cal-center", f"{PCX},{PCY}", "--cal-rings", f"{PR0},0", "50,-20",
+         "--zero-angle-deg", "0",
+         "--out", str(out), "--json"],
+        capture_output=True, text=True, check=True)
+    return json.loads(r.stdout)
+
+
 def main():
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
@@ -101,7 +151,23 @@ def main():
         assert rep2["median_abs_dev_db"] > 1.5, f"+2dB 偏移應被量化抓到: {rep2['median_abs_dev_db']}"
         assert len(rep2["outliers_over_tolerance"]) >= 8, f"多數點應超標: {rep2}"
 
-    print("✓ overlay_verify selftest: 2/2 passed (perfect≈0, +2dB offset caught)")
+        # Test 3: polar 完美 CSV → 偏差 ≈ 0（同色圈/輻條網格下）
+        pchart = td / "polar.png"
+        make_polar_synthetic(pchart)
+        pgood = td / "pgood.csv"
+        write_polar_csv(pgood)
+        rep3 = run_polar_verify(pchart, pgood, td / "o3.png")
+        assert rep3["mode"] == "polar", rep3
+        assert rep3["matched"] >= 6, f"polar 完美 CSV 應幾乎全匹配: {rep3}"
+        assert rep3["median_abs_dev_db"] < 0.4, f"polar 完美 CSV median 應 ≈0: {rep3['median_abs_dev_db']}"
+
+        # Test 4: polar +2dB 偏移 → 被抓到
+        pbad = td / "pbad.csv"
+        write_polar_csv(pbad, offset_db=2.0)
+        rep4 = run_polar_verify(pchart, pbad, td / "o4.png")
+        assert rep4["median_abs_dev_db"] > 1.5, f"polar +2dB 偏移應被抓: {rep4['median_abs_dev_db']}"
+
+    print("✓ overlay_verify selftest: 4/4 passed (FR perfect/offset + polar perfect/offset)")
 
 
 if __name__ == "__main__":

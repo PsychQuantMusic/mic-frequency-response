@@ -50,7 +50,16 @@ angle_deg,level_db
 （校準 = 圓心 + 兩個已知 dB 圈半徑 + 0° 畫面方向 + 旋轉方向），供未來 pixel-trace 極座標版或
 overlay 驗證使用。
 
+## Overlay 自我驗證（強制，#7）
+
+判讀完成後跑 `scripts/overlay_verify.py --polar`（校準 = 圓心 + 兩個已知 dB 圈半徑 + `--zero-angle-deg` + 旋向；
+圓心/圈半徑可用「灰帶 bbox + 對向射線掃圈交點」程式測量），把 CSV 畫回原圖：
+
+- **視覺為主**：`Read` overlay（多曲線用 `--marker-color` 亮色鏈接疊圖，luminance > 135），目檢標記貼曲線。
+- **數字為輔**：量化在多曲線圖有 match 歧義（window 內鄰曲線/黑網格圈誤匹配）——solid 曲線較可靠；
+  outlier 需量化與目測**一致**才修，僅量化超標視為歧義。輻條角度取樣已內建 ±3° 迴避。
+- 修正後重驗，`median/max` 記進 meta 的 `polar_verification`。
+
 ## 已知限制（誠實邊界）
 
-- 目前為純 AI 判讀；polar 版 overlay 自我驗證（同 #6 對 FR 的機制）尚未有工具——meta 精度標注是唯一防線。
 - 多曲線交疊處（尤其低頻近全向時）線型辨識易錯，讀值前先沿 LEGEND 線型從無交疊區段追進交疊區。

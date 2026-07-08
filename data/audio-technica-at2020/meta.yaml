@@ -33,3 +33,11 @@ verification:
     依 overlay 回饋整段重讀後全數過檻。0dB 錨定：平坦區所在網格線（原圖為相對刻度、無 0dB 標籤）。
 license_note: >
   數據為事實資料（frequency→dB），從公開官方 datasheet 判讀，非原圖之重製。原圖未收錄。
+polar_verification:
+  method: "polar overlay vs original chart (scripts/overlay_verify.py --polar, #7)"
+  date: 2026-07-08
+  result: >
+    4 curves quantified (window ±15px ≈ ±2.6dB): median |dev| 0.85–1.35 dB — consistent with
+    declared ±2 dB precision. Per-point quantification ambiguous on this 4-curve black-grid
+    chart (1px rings inside search window; documented limitation) — visual overlay primary,
+    no systematic misread visible; values retained.
