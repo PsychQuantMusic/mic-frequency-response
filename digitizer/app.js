@@ -12,6 +12,7 @@ const ctx = canvas.getContext('2d', { willReadFrequently: true });
 let baseImageData = null; // 原圖像素，疊示前用來還原畫面
 let mode = 'idle'; // idle | x1 | x2 | y1 | y2 | color
 let targetColor = null; // [r,g,b,a]
+let seed = null; // 取色點同時是連續性追蹤的種子（顏色 + 曲線位置，#3）
 let traced = [];
 
 // 校準點：x1/x2 存 {px}, y1/y2 存 {py}；value 從 input 讀
@@ -79,8 +80,9 @@ canvas.addEventListener('click', (e) => {
     $(mode + 'dot').textContent = '✓';
   } else if (mode === 'color') {
     targetColor = pixelAt(x, y);
+    seed = { px: x, py: y }; // 點在曲線上 → 這也是追蹤的起點
     $('swatch').style.background = `rgb(${targetColor[0]},${targetColor[1]},${targetColor[2]})`;
-    setStatus(`取色 rgb(${targetColor.slice(0, 3).join(',')})`);
+    setStatus(`取色 rgb(${targetColor.slice(0, 3).join(',')})（此點同時作為追蹤種子）`);
   }
   $(pickButtons[mode]).classList.remove('active');
   mode = 'idle';
@@ -118,6 +120,7 @@ $('trace').addEventListener('click', () => {
       pixelAt, width: canvas.width, height: canvas.height,
       xStart, xEnd, calib: transformCalib, targetColor,
       tolerance: parseFloat($('tol').value),
+      seed, // 種子連續性追蹤：同色網格圖也能追（#3）
     });
   } catch (err) {
     setStatus('追蹤失敗：' + err.message); return;
