@@ -208,6 +208,8 @@ def main():
 
     global DARK_THRESHOLD
     if args.dark_threshold is not None:
+        if not (0 <= args.dark_threshold <= 255):
+            sys.exit(f"--dark-threshold 需在 0-255（got {args.dark_threshold}）")
         DARK_THRESHOLD = args.dark_threshold
     img = Image.open(args.image).convert("RGB")
     if args.detect_lines:
@@ -346,12 +348,17 @@ def main():
 
     interp_devs = []
     interp_gaps = 0
+    interp_ambiguous = 0
     if args.interpolated and not args.polar:
         # 沿內插折線逐欄：對每個整數 px（首尾 CSV 點之間），內插出預期 py，量測欄內最寬暗 run 偏差
         import bisect
         pts_sorted = sorted(points)
+        if len(pts_sorted) < 2:
+            sys.exit("--interpolated 需要 ≥2 個 CSV 點")
         lfs = [math.log10(f) for f, _ in pts_sorted]
         px_of = [to_pixel(f, d)[0] for f, d in pts_sorted]
+        if any(px_of[i + 1] <= px_of[i] for i in range(len(px_of) - 1)):
+            sys.exit("--interpolated: CSV/校準必須產生嚴格遞增的 x 像素（reversed 校準或重複頻率？）")
         x_lo, x_hi = int(math.ceil(px_of[0])), int(math.floor(px_of[-1]))
         for xi in range(x_lo, x_hi + 1):
             # 反推該欄頻率 → 內插 dB
@@ -368,7 +375,8 @@ def main():
                 continue
             run_pos, run_w = found
             if run_w >= 0.9 * (2 * args.window + 1):
-                continue  # ambiguous 欄不計
+                interp_ambiguous += 1  # 誠實計數：既非 gap 也非量測（垂直線/粗線佔滿窗）
+                continue
             interp_devs.append(abs((run_pos - py_i) * dslope))
         draw_interp = ImageDraw.Draw(img)
         prev_xy = None
@@ -389,7 +397,8 @@ def main():
     report = {
         "mode": "polar" if args.polar else "fr",
         **({"interpolated": {
-            "columns": len(interp_devs), "gaps": interp_gaps,
+            "columns_measured": len(interp_devs), "gaps": interp_gaps,
+            "ambiguous": interp_ambiguous,
             "median_abs_dev_db": round(statistics.median(interp_devs), 3) if interp_devs else None,
             "max_abs_dev_db": round(max(interp_devs), 3) if interp_devs else None,
         }} if args.interpolated and not args.polar else {}),
@@ -407,7 +416,7 @@ def main():
         print(f"median |dev| = {median} dB, max |dev| = {mx} dB")
         if args.interpolated and not args.polar:
             it = report["interpolated"]
-            print(f"interpolated: {it['columns']} cols, median {it['median_abs_dev_db']} dB, max {it['max_abs_dev_db']} dB, gaps {it['gaps']}")
+            print(f"interpolated: {it['columns_measured']} measured, median {it['median_abs_dev_db']} dB, max {it['max_abs_dev_db']} dB, gaps {it['gaps']}, ambiguous {it['ambiguous']}")
         if outliers:
             print(f"⚠ {len(outliers)} 點超過 ±{args.tolerance} dB（目檢 overlay 判定真偏差 vs 誤匹配）：")
             for d in outliers:

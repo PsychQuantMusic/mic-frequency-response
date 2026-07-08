@@ -13,7 +13,7 @@ digitized_on: 2026-07-09  # FR regenerated (#14); original 2026-07-08
 method: >
   【#14 再生 2026-07-09】FR 曲線以 seeded-viterbi trace 全解析度重新數位化並以
   --simplify 0.05 dB 感知無損降採樣（284 點）；重繪保真驗證（overlay --interpolated，
-  沿內插折線逐欄比對）：median 0.003 / max 0.038 dB over 2030 cols，零 gap（--target-color 紅；Y 錨定經標籤文字仲裁修正：0dB@y354、13.88px/dB——原 AI 判讀錨定偏約 +0.9 dB，本次一併修正）。
+  沿內插折線逐欄比對）：median 0.003 / max 0.038 dB over 2030 measured cols（0 ambiguous），零 gap（--target-color 紅；Y 錨定經標籤文字仲裁修正：0dB@y354、13.88px/dB——原 AI 判讀錨定偏約 +0.9 dB，本次一併修正）。
   以下為原 AI 判讀方法紀錄（historical）。
   polar 資料維持原判讀密度（shape-summary 級，非重繪級——加密為 #14 Residue）。
   AI 視覺判讀官方 XLII 專屬 polar/FR PDF（每頁一個指向：p1 Omni, p2 Wide-Cardioid, p3 Cardioid,

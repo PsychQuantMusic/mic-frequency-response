@@ -13,7 +13,9 @@ digitized_on: 2026-07-09  # FR regenerated (#14); original 2026-07-08
 method: >
   【#14 再生 2026-07-09】FR 曲線以 seeded-viterbi trace 全解析度重新數位化並以
   --simplify 0.05 dB 感知無損降採樣（105 點）；重繪保真驗證（overlay --interpolated，
-  沿內插折線逐欄比對）：median 0.014 / max 0.25 dB over 1149 cols，零 gap（黑網格；曲線與 0dB 線融合段有輕微 merge bias）。
+  沿內插折線逐欄比對）：median 0.014 / max 0.25 dB over 1292 measured cols（87 ambiguous=垂直網格欄），零 gap（黑網格；曲線與 0dB 線融合段有輕微 merge bias）。
+  ⚠ 首版再生曾將頻率軸標籤指派錯一倍（81px 線讀作 10Hz、實為 20Hz——log 型態擬合只給
+  decade 間距不給值），經跨模型 verify 以舊獨立判讀 + 6kHz presence peak 特徵抓出並修正。
   以下為原 AI 判讀方法紀錄（historical）。
   polar 資料維持原判讀密度（shape-summary 級，非重繪級——加密為 #14 Residue）。
   AI 視覺判讀官方 user-guide 頻響圖（p.5）。原圖含同色（黑）網格線橫跨每一欄，

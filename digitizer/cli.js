@@ -119,6 +119,15 @@ function simplifyVertical(pts, tolDb) {
 let out = points;
 if (a.simplify !== undefined) {
   if (!(a.simplify > 0)) fail('--simplify 需 > 0（dB 容差）');
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    if (!Number.isFinite(p.freq_hz) || p.freq_hz <= 0 || !Number.isFinite(p.level_db)) {
+      fail(`--simplify: 第 ${i} 點非法（freq=${p.freq_hz}, db=${p.level_db}）`);
+    }
+    if (i > 0 && p.freq_hz <= points[i - 1].freq_hz) {
+      fail(`--simplify: freq 必須嚴格遞增（第 ${i} 點 ${p.freq_hz} ≤ ${points[i - 1].freq_hz}）—— lf 零寬 segment 會除零、NaN 靜默丟點`);
+    }
+  }
   out = simplifyVertical(points, a.simplify);
   process.stderr.write(`simplified ${points.length} -> ${out.length} points (tol ${a.simplify} dB)\n`);
 }
