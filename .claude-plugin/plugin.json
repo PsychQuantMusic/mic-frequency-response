@@ -1,0 +1,8 @@
+{
+  "name": "mic-frequency-response",
+  "description": "Digitize microphone frequency-response charts into a CSV database. Ships (1) the digitize-frequency-response skill — find a mic's official FR chart, AI-read or pixel-trace it into (freq_hz, level_db), and ingest into data/<brand>-<model>/; (2) a zero-dependency web Digitizer (semi-automatic pixel tracing, node:test-covered). Facts-only: original images are never committed, only the derived data + source URL.",
+  "version": "0.1.0",
+  "author": {
+    "name": "che (PsychQuantMusic)"
+  }
+}

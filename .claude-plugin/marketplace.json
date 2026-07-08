@@ -1,0 +1,14 @@
+{
+  "name": "psychquant-music",
+  "owner": {
+    "name": "PsychQuantMusic",
+    "url": "https://github.com/PsychQuantMusic"
+  },
+  "plugins": [
+    {
+      "name": "mic-frequency-response",
+      "source": "./",
+      "description": "Digitize microphone frequency-response charts into a queryable CSV database — a zero-dependency web Digitizer (semi-automatic pixel tracing) plus an AI-visual-reading skill for real gridded manufacturer charts. Ships example data (Shure SM58, Audio-Technica AT2020)."
+    }
+  ]
+}
