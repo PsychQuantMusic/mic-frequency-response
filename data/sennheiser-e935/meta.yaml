@@ -10,8 +10,12 @@ source:
   scale: "dBV absolute; digitized as relative dB (0 dB = -50 dBV flat plateau gridline)"
   retrieved: 2026-07-08
 digitized_by: che (via Claude)
-digitized_on: 2026-07-08
+digitized_on: 2026-07-09  # FR regenerated (#14); original 2026-07-08
 method: >
+  【#14 再生 2026-07-09】FR 曲線以 seeded-viterbi trace 全解析度重新數位化並以
+  --simplify 0.05 dB 感知無損降採樣（194 點）；重繪保真驗證（overlay --interpolated，
+  沿內插折線逐欄比對）：median 0.004 / max 0.052 dB over 1019 cols，零 gap（--target-color 藍；錨定改為 -50 dBV 網格線 = 0 dB 整，取代原 -50.7 平坦區錨——差異約 0.7 dB 為慣例更換非誤差）。
+  以下為原 AI 判讀方法紀錄（historical）。
   AI 視覺判讀官方 product-specification FR 圖（p.2）。曲線為藍色（cyan），與黑色網格不同色，
   故用 blue-channel column-scan 精確抽線（非 grayscale widest-run）。原圖 Y 軸為絕對 dBV，
   依 AT2020 慣例錨定 0 dB = 平坦區所在的 -50 dBV 網格線（實測平坦區 -50.7 dBV，即 0dB 對應 -50.7）。

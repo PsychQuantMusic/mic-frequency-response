@@ -199,9 +199,16 @@ def main():
                     help="彩色曲線模式：R,G,B——sampler 以 RGB 色距 ≤ --color-tolerance 判 match（取代灰階暗度）。顏色是最強的曲線/網格區分特徵（#13）。注意：鏈接疊圖時，舊標記色與本次 target 的 RGB 距離需 > --color-tolerance（灰階模式的 lum>135 規則不適用於色距），否則從乾淨原圖重疊")
     ap.add_argument("--color-tolerance", type=float, default=60.0)
     ap.add_argument("--marker-color", default="0,220,90", help="標記色 R,G,B（多曲線累積疊圖用不同色；luminance 需 >135，否則鏈接疊圖時舊標記會被當暗像素自污染量化）")
+    ap.add_argument("--interpolated", action="store_true",
+                    help="FR 模式：沿 CSV 的線性內插折線（log-f 空間）逐欄量偏差——「重繪保真度」的真正驗證（#14）。點數多寡不是指標，內插誤差才是；稀疏資料在點上驗證通過、點間失真的漏洞由此補上")
+    ap.add_argument("--dark-threshold", type=int, default=None,
+                    help="灰階暗度門檻覆蓋（預設 128）。高 dpi 細描邊抗鋸齒後偏淡（實測 AT2020 600dpi 部分欄 >128 → 量化 gap），掃描圖可調高至 ~170")
     ap.add_argument("--detect-lines", action="store_true")
     args = ap.parse_args()
 
+    global DARK_THRESHOLD
+    if args.dark_threshold is not None:
+        DARK_THRESHOLD = args.dark_threshold
     img = Image.open(args.image).convert("RGB")
     if args.detect_lines:
         detect_lines(img)
@@ -337,6 +344,40 @@ def main():
             **extra,
         })
 
+    interp_devs = []
+    interp_gaps = 0
+    if args.interpolated and not args.polar:
+        # 沿內插折線逐欄：對每個整數 px（首尾 CSV 點之間），內插出預期 py，量測欄內最寬暗 run 偏差
+        import bisect
+        pts_sorted = sorted(points)
+        lfs = [math.log10(f) for f, _ in pts_sorted]
+        px_of = [to_pixel(f, d)[0] for f, d in pts_sorted]
+        x_lo, x_hi = int(math.ceil(px_of[0])), int(math.floor(px_of[-1]))
+        for xi in range(x_lo, x_hi + 1):
+            # 反推該欄頻率 → 內插 dB
+            # px 對 log-f 線性，直接在 px 空間內插
+            j = bisect.bisect_right(px_of, xi) - 1
+            j = max(0, min(j, len(pts_sorted) - 2))
+            t = (xi - px_of[j]) / (px_of[j + 1] - px_of[j]) if px_of[j + 1] != px_of[j] else 0
+            db_i = pts_sorted[j][1] + t * (pts_sorted[j + 1][1] - pts_sorted[j][1])
+            py_i = to_pixel(pts_sorted[j][0], db_i)[1]  # y 只依 dB
+            col = column_samples(lum, w_img, h_img, xi, round(py_i) - args.window, round(py_i) + args.window)
+            found = widest_dark_run(col) if col else None
+            if found is None:
+                interp_gaps += 1
+                continue
+            run_pos, run_w = found
+            if run_w >= 0.9 * (2 * args.window + 1):
+                continue  # ambiguous 欄不計
+            interp_devs.append(abs((run_pos - py_i) * dslope))
+        draw_interp = ImageDraw.Draw(img)
+        prev_xy = None
+        for f, d in pts_sorted:
+            xy = tuple(map(round, to_pixel(f, d)))
+            if prev_xy:
+                draw_interp.line([prev_xy, xy], fill=marker, width=1)
+            prev_xy = xy
+
     out_path = args.out or (args.image + ".overlay.png")
     img.save(out_path)
 
@@ -347,6 +388,11 @@ def main():
 
     report = {
         "mode": "polar" if args.polar else "fr",
+        **({"interpolated": {
+            "columns": len(interp_devs), "gaps": interp_gaps,
+            "median_abs_dev_db": round(statistics.median(interp_devs), 3) if interp_devs else None,
+            "max_abs_dev_db": round(max(interp_devs), 3) if interp_devs else None,
+        }} if args.interpolated and not args.polar else {}),
         "points": len(points), "matched": len(deviations), "gaps": len(gaps),
         "ambiguous_vertical_runs": ambiguous,
         "median_abs_dev_db": median, "max_abs_dev_db": mx,
@@ -359,6 +405,9 @@ def main():
         print(f"overlay: {out_path}")
         print(f"points={report['points']} matched={report['matched']} gaps={report['gaps']} ambiguous={len(ambiguous)}")
         print(f"median |dev| = {median} dB, max |dev| = {mx} dB")
+        if args.interpolated and not args.polar:
+            it = report["interpolated"]
+            print(f"interpolated: {it['columns']} cols, median {it['median_abs_dev_db']} dB, max {it['max_abs_dev_db']} dB, gaps {it['gaps']}")
         if outliers:
             print(f"⚠ {len(outliers)} 點超過 ±{args.tolerance} dB（目檢 overlay 判定真偏差 vs 誤匹配）：")
             for d in outliers:

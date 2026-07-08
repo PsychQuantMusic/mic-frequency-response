@@ -11,6 +11,9 @@ source:
 digitized_by: che (via Claude)
 digitized_on: 2026-07-08
 method: >
+  【#14 註記 2026-07-09】三曲線（flat/bass-rolloff/presence）的 trace 再生嘗試中發現
+  像素證據與既有判讀值有系統性出入（可能為 Y 錨定慣例差異），誠實 defer——密度維持
+  AI 判讀級（38 點/曲線），再生留 #14 Residue 專注處理。
   AI 視覺判讀官方 user-guide。FR 圖(p.10)含三條 switch-setting 曲線（Flat 實線、
   Bass Rolloff 長虛線、Presence Boost 點線）。原圖含同色黑網格，pixel-trace 不適用（#3）。
   以 column-scan 作第一手，並在三曲線分岔區（低頻 flat vs bass-rolloff、presence 2-6kHz

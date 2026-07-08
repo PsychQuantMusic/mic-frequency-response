@@ -39,10 +39,10 @@ description: >
 triage 小抄：**彩色曲線**（e935 藍、C414/NT1 紅…）是最友善情境——顏色是最強的曲線/網格區分特徵：trace 用 `--target-color R,G,B`（CLI）、量化用 `overlay_verify.py --target-color`（#13），異色網格天然被排除。**灰網格 + 黑曲線**（Shure 慣例）次之（暗度閾值排除網格）；**黑網格 + 黑曲線**（Audio-Technica 慣例）最難——trace 靠 viterbi 防禦、量化歧義較高。
 
 **Headless trace 流程**（單曲線真實圖的預設路徑，不需瀏覽器）：
-1. 高解析轉圖（`pdftoppm -r 400`）並 crop 出圖表區。
+1. 高解析轉圖（`pdftoppm -r 400`）並 **crop 到 plot area**（只留格線框內）。為什麼：圖外的標題/標籤文字是暗像素，viterbi lookback 在淡描邊 gap 段會跳上去騎文字（#14 實測 AT2020 +14dB 髒點 45 欄）——文字不在畫面裡就沒有 hop 目標。
 2. **校準**：`python3 scripts/overlay_verify.py chart.png --detect-lines` 印網格線候選 → 對軸標籤定 2 個 X 點（已知 Hz）+ 2 個 Y 點（已知 dB）。
    **校準自我核驗（強制）**：用第三條已知標籤線覆核——例如定了 100Hz/10kHz 後，驗算 2kHz/20kHz 線的預測位置是否吻合偵測值（decade 寬度一致性）。校準錯 → 判讀與驗證**一起**錯、抓不到（#6 教訓）。
-3. 看圖挑一個**種子點**（曲線上、避開與網格線相切處），然後：
+3. 看圖挑一個**種子點**（曲線上、避開與網格線相切處、**避開垂直網格線欄**——黑網格圖整欄融成巨 run，種子會誠實回空 #14）。彩色曲線加 `--target-color R,G,B`（網格天然被排除，種子可放心點在曲線任何處）。然後：
    ```bash
    python3 scripts/dump_pixels.py chart.png /tmp/chart.bin   # 印 "W H"
    node digitizer/cli.js --bin /tmp/chart.bin --size WxH \
@@ -50,8 +50,8 @@ triage 小抄：**彩色曲線**（e935 藍、C414/NT1 紅…）是最友善情�
      --seed PX,PY [--x-range X0,X1] [--max-jump 14] > /tmp/traced.csv
    ```
    實例（SM58 官方圖 @400dpi）：`--cal-x 405,100 1244,10000 --cal-y 141,10 469,-10 --seed 820,313 --x-range 150,1372 --max-jump 14`。
-4. traced.csv 沿 log 頻率**重取樣成 ~1/3 八度**的入庫點（trace 每欄一點太密；重取樣時保留特徵點——peak/notch/rolloff 端點）。
-5. **Overlay 驗證（強制，同 AI 判讀路徑的第 5 步）**——trace 也可能被校準錯誤或 trace 缺陷污染，原圖 ground-truth 比對不因方法而豁免。
+4. **`--simplify 0.05` 感知無損降採樣**（#14——取代舊的固定 1/3 八度重取樣）。判準不是點數而是「重繪誤差 ≤ 容差」：密度由曲線複雜度自動決定（平坦段極稀、notch/peak 密）。固定頻率格是 AI 判讀時代「人工讀點貴」的遺產，trace 之後每點免費，別再主動丟密度——資料庫的承諾是**畫回去與原圖一模一樣**。x-range 用 published `frequency_range_hz` 換算 px 定界（圖緣外的 1px 碎片不撿）。
+5. **Overlay 驗證（強制，加 `--interpolated`）**——除逐點比對外，沿 CSV 內插折線**逐欄**量偏差（重繪保真度的真正驗證；稀疏資料「點上過檻、點間失真」的漏洞由此補上）。過檻參考：interpolated median ≲0.05 dB、max ≲0.3 dB、零 gap（#14 六支實測 median 0.003–0.017）。把 interpolated 統計記進 meta 的 `verification`。淡描邊高 dpi 圖可加 `--dark-threshold 150`。
 
 **AI 判讀步驟**（多曲線圖的路徑；單曲線圖 trace 失敗時的 fallback）：
 1. 讀懂座標系：X 軸 log（找 `20 / 50 / 100 / 1000 / 10000` 等標籤定範圍與方向）、Y 軸 linear dB（找 `0` 線與刻度間距）。高解析 crop + 放大看能大幅提升精度。
@@ -112,5 +112,5 @@ license_note: >
 ## 範例
 
 **Input**: 「把 Shure SM58 加進資料庫」
-**Flow**: WebSearch 官方 SM58 user-guide PDF → curl 下載 → `pdftoppm` 轉頁 → 找到第 6 頁「Typical SM58 Frequency Response」→ 單曲線真實圖 → **headless seeded trace**（detect-lines 校準 + 覆核 → dump_pixels + cli.js → 重取樣 ~30 點）→ overlay 驗證過檻 → 寫 `data/shure-sm58/frequency-response--typical.csv` + `meta.yaml`（method 記 seeded-viterbi trace + 驗證數字）→ commit（原 PDF/PNG 留 scratch、不進 repo）。
+**Flow**: WebSearch 官方 SM58 user-guide PDF → curl 下載 → `pdftoppm` 轉頁 → 找到第 6 頁「Typical SM58 Frequency Response」→ 單曲線真實圖 → **headless seeded trace**（detect-lines 校準 + 覆核 → plot-area crop → dump_pixels + cli.js `--simplify 0.05`）→ overlay `--interpolated` 驗證過檻 → 寫 `data/shure-sm58/frequency-response--typical.csv` + `meta.yaml`（method 記 seeded-viterbi trace + interpolated 驗證數字）→ commit（原 PDF/PNG 留 scratch、不進 repo）。
 **Output**: `data/shure-sm58/` 一個 CSV + 一個 meta.yaml，曲線形狀與官方圖貼合（rolloff + presence peak + notch + 高頻 rolloff）。

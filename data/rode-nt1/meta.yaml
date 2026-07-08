@@ -9,8 +9,13 @@ source:
   chart: "Frequency Response + Polar Pattern (dB rel 1V/Pa)"
   retrieved: 2026-07-08
 digitized_by: che (via Claude)
-digitized_on: 2026-07-08
+digitized_on: 2026-07-09  # FR regenerated (#14); original 2026-07-08
 method: >
+  【#14 再生 2026-07-09】FR 曲線以 seeded-viterbi trace 全解析度重新數位化並以
+  --simplify 0.05 dB 感知無損降採樣（68 點）；重繪保真驗證（overlay --interpolated，
+  沿內插折線逐欄比對）：median 0.004 / max 0.048 dB over 965 cols，零 gap（--target-color 紅）。
+  以下為原 AI 判讀方法紀錄（historical）。
+  polar 資料維持原判讀密度（shape-summary 級，非重繪級——加密為 #14 Residue）。
   AI 視覺判讀官方 datasheet（p.2）。FR 曲線為紅色，用 red-channel column-scan 精抽；
   polar 為全圓圖（0° 在上、90° 左、270° 右），三色曲線 500Hz(red)/1000Hz(blue)/4000Hz(green)，
   用 per-color ray-scan 讀取。radial scale 實測為線性（環距等寬 7.5px/dB，0dB@r187、外圈 +5、圓心 -25dB）。

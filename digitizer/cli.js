@@ -46,6 +46,7 @@ function parseArgs(argv) {
       case '--max-jump': a.maxJump = Number(next()); break;
       case '--max-run-size': a.maxRunSize = Number(next()); break;
       case '--strategy': a.strategy = next(); break;
+      case '--simplify': a.simplify = Number(next()); break;
       case '--target-color': {
         const c = String(next()).split(',').map(Number);
         if (c.length < 3 || c.some((v) => !Number.isFinite(v))) fail('--target-color 格式錯誤（需 R,G,B[,A]）');
@@ -86,5 +87,40 @@ const points = traceCurve({
 if (points.length === 0) {
   fail('trace 回空（種子不在合格 run 附近？）—— 檢查 --seed 是否點在曲線上');
 }
+
+// --simplify <dB>（#14）：感知無損降採樣 —— Douglas–Peucker 的「最大垂直偏差」變體
+// （單值曲線 y(x) 適用）。密度由曲線複雜度自動決定：平坦段極稀、notch/peak 密。
+// 判準不是點數，是「線性內插重繪誤差 ≤ 容差」；0.05dB 為感知無損建議值。
+function simplifyVertical(pts, tolDb) {
+  if (pts.length <= 2) return pts;
+  const keep = new Array(pts.length).fill(false);
+  keep[0] = keep[pts.length - 1] = true;
+  const lf = pts.map((p) => Math.log10(p.freq_hz));
+  const stack = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [i0, i1] = stack.pop();
+    if (i1 - i0 < 2) continue;
+    let worst = -1;
+    let worstDev = 0;
+    for (let i = i0 + 1; i < i1; i++) {
+      const t = (lf[i] - lf[i0]) / (lf[i1] - lf[i0]);
+      const interp = pts[i0].level_db + t * (pts[i1].level_db - pts[i0].level_db);
+      const dev = Math.abs(pts[i].level_db - interp);
+      if (dev > worstDev) { worstDev = dev; worst = i; }
+    }
+    if (worstDev > tolDb) {
+      keep[worst] = true;
+      stack.push([i0, worst], [worst, i1]);
+    }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+
+let out = points;
+if (a.simplify !== undefined) {
+  if (!(a.simplify > 0)) fail('--simplify 需 > 0（dB 容差）');
+  out = simplifyVertical(points, a.simplify);
+  process.stderr.write(`simplified ${points.length} -> ${out.length} points (tol ${a.simplify} dB)\n`);
+}
 process.stderr.write(`traced ${points.length} points (strategy=${a.strategy})\n`);
-process.stdout.write(toCSV(points));
+process.stdout.write(toCSV(out));
