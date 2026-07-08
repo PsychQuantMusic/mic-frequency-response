@@ -1,0 +1,47 @@
+brand: Audix
+model: D6
+type: dynamic
+polar_patterns: [cardioid]
+frequency_range_hz: [30, 15000]   # published "Frequency Response" spec (30 Hz - 15 kHz)
+source:
+  url: https://audixusa.com/cdn/shop/files/D6_V3_1221.pdf
+  page: 2
+  chart: "FREQUENCY RESPONSE (D6 Dynamic Instrument Microphone spec sheet, ver 3.0 05-16)"
+  product_page: https://audixusa.com/us-en/professional-dynamic-instrument-microphone-ax-d6/
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Seeded-viterbi pixel-trace of the single navy-blue response curve
+  (target-color RGB 46,49,145) on the official Audix D6 spec-sheet chart,
+  rendered at 400 dpi (pdftoppm) and cropped to the plot area. 4-point
+  calibration read directly from axis labels + gridlines (non-circular):
+  X log — x=502.5 px -> 100 Hz, x=1229.5 px -> 10 kHz (gridline centers
+  cross-checked against label-text centroids 505 / 1231 px and the
+  20 Hz / 20 kHz frame borders 248.5 / 1339 px); Y linear — y=2434.5 px
+  -> +10 dBm (top frame), y=2705.5 px -> -10 dBm (bottom frame), with the
+  0 / +5 / -5 dBm gridlines confirming linear spacing (~13.55 px/dB).
+  Curve full-resolution trace (1041 cols) simplified with --simplify 0.05 dB
+  (perceptually lossless) to 169 points. The chart plots 20 Hz - 20 kHz;
+  the trace spans ~24.9 Hz - 18.1 kHz (endpoints trim slightly where the
+  curve merges into the frame corners at the extreme low/high ends).
+  Y axis is labeled "dBm" (relative response), so values are relative dB.
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response (as published)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated --target-color 46,49,145, #14)"
+  date: 2026-07-09
+  result: >
+    169 points, all matched, 0 gaps, 0 ambiguous. Point-wise median |dev| 0.002 dB,
+    max 0.005 dB. Interpolated (per-column along CSV polyline): 1041 measured cols,
+    median 0.01 dB, max 0.052 dB, 0 gaps, 0 ambiguous — well within thresholds
+    (median ≲0.05, max ≲0.3). Colored curve => zero ambiguous columns as expected.
+  note: >
+    Shape cross-checks against kick-mic expectation: low bump ~+2.3 dB @ 60 Hz,
+    deep low-mid scoop ~-7.5 dB @ 500 Hz, presence peak ~+8.2 dB @ 5 kHz,
+    second HF ripple ~+7.3 dB @ 11 kHz, steep HF rolloff. Confirms calibration
+    is not shifted (features land where a scooped-mid "smiley" kick mic requires).
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo，僅記來源 URL。
