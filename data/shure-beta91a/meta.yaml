@@ -1,0 +1,60 @@
+brand: Shure
+model: Beta 91A
+type: condenser            # electret condenser, boundary/PZM
+polar_patterns: [half-cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://content-files.shure.com/Pubs/BETA91A/pdf_beta91a_specification_sheet.pdf
+  page: 1
+  chart: >
+    Frequency-response graph (dB vs Hz, "61 cm (2 ft.) from sound source"),
+    on the Beta 91A Specification Sheet TL1073 (Rev. 1), ©2010 Shure.
+    The graph carries two curves selected by the two-position Contour Switch:
+    a SOLID line = Flat response, and a DASHED line = Low-Mid Scoop.
+  also_published_at: https://pubs.shure.com/view/guide/BETA91A/en-US.pdf   # official user guide (same chart)
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Headless seeded-viterbi pixel-trace of the SOLID (Flat / "typical") curve, then
+  --simplify 0.05 dB perceptual-lossless downsample (55 points). Source PDF rendered
+  at 400 dpi; plot area cropped tight. Two non-curve decoys inside the frame (the
+  "61 cm (2 ft.)…" annotation at ~+14 dB and the EQ contour-switch legend box at
+  bottom-left, ~-11 dB) were whited out before tracing. Because this is a TWO-curve
+  chart, the second curve — the DASHED Low-Mid Scoop, which dips to ~-7 dB around
+  400 Hz — was masked out below the solid line (a fixed y-cut well below the solid,
+  which never dips beyond -0.9 dB) so the tracer could not grab it; the solid Flat
+  curve was left fully intact. Calibration (crop coords of the 1115x580 plot crop):
+  --cal-x 631,1000 997,10000  --cal-y 8,20 573,-20  (366 px/decade log-x, linear dB-y).
+  Calibration CROSS-VALIDATED against the spec sheet's own stated value: the datasheet
+  says the Contour Switch gives "7 dB of attenuation centered at 400 Hz", and the traced
+  dashed scoop bottoms at exactly 400 Hz with ~7 dB depth — confirming both axes are
+  correct (rules out a log-axis whole-decade factor shift).
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response, Contour Switch = FLAT (solid curve as published)"
+notes: >
+  Only the FLAT/typical (solid) curve is digitized here. The chart's second curve
+  (dashed = Low-Mid Scoop contour setting) is an alternate front-panel switch position,
+  not the default response, and was not digitized. Traced features: gently rising low/low-mid
+  (~-1.7 dB @ 50 Hz to 0 dB @ ~900 Hz), broad presence peak ≈ +4.6 dB at ~7.9 kHz,
+  sharp drop past ~9 kHz, small secondary bump ~13 kHz, HF rolloff to ~-4.5 dB @ 20 kHz.
+verification:
+  method: >
+    (1) overlay_verify.py --interpolated vs the ORIGINAL (un-masked) chart; and
+    (2) an independent nearest-dark-pixel check of the CSV vs the isolated SOLID line
+    (dashed masked, vertical-gridline columns excluded).
+  date: 2026-07-09
+  interpolated_vs_original: >
+    923 columns, median |dev| 0.014 dB, max 2.68 dB, 0 gaps, 27 ambiguous (dense vertical
+    gridline clusters). The high MAX is a two-curve measurement artifact: in the 200–900 Hz
+    scoop region the automated widest-run verifier locks onto the DASHED decoy, not the
+    solid curve. Shrinking the search window to exclude the dashed drops max monotonically
+    (window 40→2.68, 20→1.27, 15→0.87, 12→0.61 dB); median stays 0.013–0.014 dB throughout.
+  independent_solid_check: >
+    895 non-gridline columns vs the isolated solid line: median |dev| 0.018 dB,
+    max |dev| 0.035 dB, ZERO columns > 0.3 dB. Per-point |dev| median 0.034, max 0.247 dB.
+  result: "Solid (typical) curve reproduced faithfully; visual overlay confirms green trace sits on the solid line and correctly ignores the dashed scoop."
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 Shure 規格書判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo，只記來源 URL。
