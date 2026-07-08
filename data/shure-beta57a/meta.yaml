@@ -1,0 +1,53 @@
+brand: Shure
+model: Beta 57A
+type: dynamic
+polar_patterns: [supercardioid]
+frequency_range_hz: [50, 16000]
+source:
+  url: https://content-files.shure.com/Pubs/BETA57A/beta57a-specification-sheet-english.pdf
+  page: 1
+  chart: "Frequency Response"
+  retrieved: 2026-07-09
+  note: >
+    官方 Beta 57A 產品規格表（Product Specifications，©2015 Shure Incorporated，單頁 PDF）。
+    Beta 57A 的 user guide（pubs.shure.com/view/guide/BETA57A/en-US.pdf，7 頁）不含頻響圖，
+    僅有文字規格與尺寸圖——頻響圖只在此規格表出現。
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi trace（digitizer/cli.js, strategy=viterbi, --simplify 0.05）於官方規格表
+  「Frequency Response」圖，600 dpi 渲染、tight-crop 到 plot area。
+  此圖為多曲線圖（4 條，以線型區分近接距離：3 mm 點虛線、25 mm 短虛線、51 mm 長虛線、
+  0.6 m 實線）；只數位化「0.6 m (2 ft) 實線」——即遠場 on-axis typical published 曲線
+  （其餘三條為近接效應 bass boost，非 typical 響應）。圖上實線標籤印為「0.6 mm (2 ft.)」，
+  係規格表排版誤植（正確為 0.6 m = 606 mm = 2 ft，與 Beta 58A 規格表一致）。
+  實線為連續粗線、其餘三條為斷線；seeded-viterbi 連續性在收斂區（~700–1000 Hz，四曲線靠攏後
+  三條虛線終止）正確保持在實線上，全程未跳到近接曲線（overlay 綠標視覺確認）。
+  校準：X 軸 log，以 22 條偵測網格線最小平方擬合（x = 390.53·log10(f) − 498.1，
+  rms 殘差 2.4 px ≈ 0.6% decade）定 cal-x 283,100 / 1064,10000；此擬合外推到偵測到的
+  左右邊框（20 Hz→9.99 px vs 偵測 5、20 kHz→1181.6 px vs 偵測 1183）與 50 Hz 線一致，
+  非循環——並以已知 presence 雙峰交叉核驗：實測峰落在 ~4.8 kHz / ~10 kHz、notch ~6.5 kHz，
+  符合 Beta 57A tailored presence rise（若整軸偏移一個 decade，峰會落到 480 Hz 或 48 kHz）。
+  Y 軸 linear（cal-y 157,10 / 459,−10；網格 15.06 px/dB 全圖一致，0 dB 於 y=308）。
+  --simplify 0.05 dB 感知無損降採樣（959 → 80 點）。
+  注意：此圖為黑色網格 + 黑色曲線（Shure 規格表慣例中最難的一種），垂直網格線為滿欄純黑，
+  量化時形成 ambiguous 欄（見 verification，屬預期）。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response, 0.6 m (2 ft) far-field source distance (as published; solid curve)"
+verification:
+  method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, window 10)"
+  date: 2026-07-09
+  result: >
+    point-wise: 80 points, 77 matched, median |dev| 0.031 dB, max 0.23 dB, 0 gaps, 3 ambiguous.
+    interpolated (逐欄沿 log-f 內插折線): 947 columns measured, median 0.015 dB, max 0.23 dB,
+    0 gaps, 36 ambiguous (= vertical-gridline columns, 黑色同色網格；預期).
+  note: >
+    綠色 overlay 標記視覺確認完全貼合 0.6 m 實線全程（bass rolloff −12.9 dB @ ~54 Hz、
+    收斂至 ~−1 dB plateau @ 400–700 Hz、過 0 dB @ ~970 Hz、presence peak +3.4 dB @ ~4.8 kHz、
+    notch ~0 dB @ ~6.5 kHz、二次峰 +3.3 dB @ ~10 kHz、HF rolloff 至 −6.1 dB @ ~17.9 kHz），
+    全程無跳線到近接（3mm/25mm/51mm）虛線或 legend 文字。曲線繪製延伸至 ~17.9 kHz
+    （超出 published 50–16000 Hz 標稱範圍，忠實反映原圖繪製範圍）。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo，
+  meta 僅記來源 URL。
