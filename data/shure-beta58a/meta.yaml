@@ -1,0 +1,41 @@
+brand: Shure
+model: Beta 58A
+type: dynamic
+polar_patterns: [supercardioid]
+frequency_range_hz: [50, 16000]
+source:
+  url: https://pubs.shure.com/view/guide/BETA58A/en-US.pdf
+  page: 2
+  chart: "TYPICAL FREQUENCY RESPONSE"
+  retrieved: 2026-07-09
+digitized_by: agent
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi trace（digitizer/cli.js, strategy=viterbi, maxJump=12）於
+  官方 user guide 頁 2「TYPICAL FREQUENCY RESPONSE」圖，600 dpi 渲染、tight-crop 到 plot area。
+  此圖為多曲線圖（4 條，以線型區分近接距離：3 mm 點線、25 mm 短虛線、51 mm 長虛線、606 mm 實線）；
+  只數位化「606 mm (2 ft) 實線」——即 NOTE 所述「on-axis response at a distance of 2 feet」的
+  typical published 曲線（其餘三條為近接效應 bass boost，非 typical 響應）。實線為連續粗線、
+  其餘為斷線，seeded-viterbi 連續性在收斂區（~700–1300 Hz）正確保持在實線上、未跳到近接曲線。
+  --simplify 0.05 dB 感知無損降採樣（68 點）。校準：X 軸 log，兩點以偵測網格 + 實讀軸標籤定
+  （x=759→200 Hz、x=1674→10 kHz，全 15 條偵測網格線映射到 round 頻率誤差 <2%，並以已知
+  presence 雙峰 ~4.5 kHz / ~9 kHz 交叉核驗，非循環）；Y 軸 linear（y=249→+10 dB、y=664→−10 dB，
+  網格間距 20.75 px/dB 全圖一致）。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response, 606 mm (2 ft) source distance (as published; solid curve)"
+verification:
+  method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, window 12)"
+  date: 2026-07-09
+  result: >
+    point-wise: 68/68 matched, median |dev| 0.025 dB, max 0.212 dB, 0 gaps.
+    interpolated (逐欄沿內插折線): 1315 columns measured, median 0.012 dB, max 0.433 dB,
+    0 gaps, 40 ambiguous (= vertical-gridline columns, same-color grid; expected).
+  note: >
+    綠色 overlay 標記視覺確認完全貼合 606 mm 實線全程（bass rolloff、收斂區、+1 dB plateau、
+    presence peak ~+5 dB @ ~4.5 kHz、notch ~+2.3 dB @ ~6.5 kHz、二次峰 ~+5 dB @ ~9 kHz、
+    HF rolloff 至 −4 dB @ ~18.7 kHz），無跳線到近接曲線或 legend。max 0.433 dB 為單欄內插
+    corner-cut / 網格相鄰假影，非誤描；median 0.012 dB。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo，
+  meta 僅記來源 URL。
