@@ -17,6 +17,16 @@ method: >
 curves:
   - file: frequency-response--typical.csv
     condition: "typical on-axis response (as published)"
+  # kind 缺省 = frequency-response（向後相容）
+  - { file: polar-pattern--125hz.csv,  kind: polar-pattern, condition: "125 Hz (user guide p.6 'Typical SM58 Polar Pattern', left chart, solid)" }
+  - { file: polar-pattern--500hz.csv,  kind: polar-pattern, condition: "500 Hz (left chart, dotted)" }
+  - { file: polar-pattern--1000hz.csv, kind: polar-pattern, condition: "1000 Hz (left chart, dashed)" }
+  - { file: polar-pattern--2000hz.csv, kind: polar-pattern, condition: "2000 Hz (right chart, solid)" }
+  - { file: polar-pattern--4000hz.csv, kind: polar-pattern, condition: "4000 Hz (right chart, dotted)" }
+  - { file: polar-pattern--8000hz.csv, kind: polar-pattern, condition: "8000 Hz (right chart, dashed)" }
+polar_read_note: >
+  AI 視覺判讀，30° 取樣、精度 ±1.5 dB（小圖多曲線）。0° = on-axis；
+  發表圖左右對稱，記錄 0–180° 半平面即完整（外圈 0dB、5dB/圈）。
 verification:
   method: "overlay vs original chart (scripts/overlay_verify.py, #6)"
   date: 2026-07-08
