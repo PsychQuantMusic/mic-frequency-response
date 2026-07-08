@@ -62,6 +62,9 @@ function matchingRuns({ pixelAt, x, height, targetColor, tolerance }) {
  *   種子點不在任何合格 run 附近（±maxJump）→ 回空陣列（誠實拒絕，UI 應提示重新取色）。
  */
 export function traceCurve({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance, seed, maxJump = 12, maxRunSize = null, strategy = 'greedy' }) {
+  if (strategy !== 'greedy' && strategy !== 'viterbi') {
+    throw new Error(`unknown strategy: ${strategy}（拼字錯誤會靜默退回 greedy —— cross-model verify LOW）`);
+  }
   // maxRunSize 自適應預設：max(16, height/8)。固定 16 在真實高解析圖的「陡降段」誤殺
   // 曲線自己的 run（每欄 run 高 ≈ stroke/cosθ，400dpi 陡段可達 20–70px）——實測 SM58
   // 高頻段整段被拒、tracer 提前止步。垂直網格線 run 是「整欄高」（≈ chart height），
@@ -217,6 +220,25 @@ function traceFromSeedViterbi({ pixelAt, width, height, xStart, xEnd, calib, tar
       }
       if (dark / spanCount > 0.85) gridRows.add(y); // 真網格線是精確直線（覆蓋≈100%）；真曲線只要有傾斜/起伏，單列覆蓋遠低於此（平坦段誤旗實測踩過：0.6 門檻連「平坦曲線+同高 decoy」都會誤殺）
     }
+    // Gating（cross-model verify HIGH-1）：「乾淨的全跨平坦曲線」自己就會超過覆蓋率門檻
+    // → 整條被罰成網格線 → viterbi 只回種子點。兩道防呆：
+    //   1. 剔除含種子錨點的 row-group —— 種子在曲線上，曲線自身的列不得視為網格線
+    //   2. 剩餘 group < 2 → 整個懲罰停用 —— 真 chart 的水平網格必有多條線
+    const rows = [...gridRows].sort((a, b) => a - b);
+    const groups = [];
+    for (const y of rows) {
+      const g = groups[groups.length - 1];
+      if (g && y - g[1] <= 1) g[1] = y;
+      else groups.push([y, y]);
+    }
+    const anchorY = Math.round(anchor.center);
+    const kept = groups.filter(([g0, g1]) => anchorY < g0 - 2 || anchorY > g1 + 2);
+    if (kept.length < 2) {
+      gridRows.clear();
+    } else {
+      gridRows.clear();
+      for (const [g0, g1] of kept) for (let y = g0; y <= g1; y++) gridRows.add(y);
+    }
   }
   // 只罰「純網格線 run」（整段 y 都落在網格線列上）。曲線經過/貼合網格線時，
   // 合併 run 含網格線列以外的 y → 不罰（歧義處給無罪推定，交給平滑先驗裁決）。
@@ -229,10 +251,14 @@ function traceFromSeedViterbi({ pixelAt, width, height, xStart, xEnd, calib, tar
   };
   const emission = (r) => -Math.min(r.size, 6) * W_WIDTH + (isPureGridRun(r) ? W_GRIDLINE : 0);
 
+  const LOOKBACK_X = 100; // 前驅回看窗（px）：允許路徑「跳過」可達但被污染的中間欄
+  // （cross-model verify HIGH-2：遮擋帶內若有同色水平網格線，僅接前一欄的 DP 會被
+  //  該線劫持 prev，遮擋後 dy > maxJump×1 → 永遠接不回。回看讓 gap-spread 的 dx
+  //  正確累積；跳過欄 = 放棄該欄獎勵，故路徑只在「跳過比通過便宜」時才跳，語意正確。）
+
   /** 半程 DP：種子欄往 step 方向到 xLimit，回傳最優路徑 [{x,y}]（含種子欄）。 */
   const half = (step, xLimit) => {
-    let prev = { x: seedX, runs: [anchor], cost: [0], parent: [-1] };
-    const chain = [prev];
+    const chain = [{ x: seedX, runs: [anchor], cost: [0], parent: [null] }];
     // 終點選「全域最小成本狀態」，不強制走到 xLimit ——
     // 掃描範圍常比曲線寬（曲線在 chart 邊緣前結束）；若強制以最遠可達欄當終點，
     // 唯一能到那裡的是水平網格線 → 整條尾段被迫騎網格線（真實 SM58 圖實測踩到：
@@ -243,32 +269,38 @@ function traceFromSeedViterbi({ pixelAt, width, height, xStart, xEnd, calib, tar
     for (let x = seedX + step; step > 0 ? x <= xLimit : x >= xLimit; x += step) {
       const runs = qualifyingRuns(x);
       if (runs.length === 0) continue; // 無候選欄 = 天然 gap
-      const dx = Math.abs(x - prev.x);
       const cost = new Array(runs.length).fill(Infinity);
-      const parent = new Array(runs.length).fill(-1);
-      for (let j = 0; j < runs.length; j++) {
-        for (let i = 0; i < prev.runs.length; i++) {
-          if (prev.cost[i] === Infinity) continue;
-          const dy = Math.abs(runs[j].center - prev.runs[i].center);
-          if (dy > maxJump * dx) continue; // 硬上限：gap 越長容許位移越大，但不許瞬移
-          const c = prev.cost[i] + ((dy * dy) / dx) * W_SMOOTH + emission(runs[j]);
-          if (c < cost[j]) { cost[j] = c; parent[j] = i; }
+      const parent = new Array(runs.length).fill(null);
+      // 前驅：回看窗內的所有 chain 節點（由近而遠），不只前一個
+      for (let k = chain.length - 1; k >= 0; k--) {
+        const node = chain[k];
+        const dx = Math.abs(x - node.x);
+        if (dx > LOOKBACK_X) break;
+        for (let j = 0; j < runs.length; j++) {
+          for (let i = 0; i < node.runs.length; i++) {
+            if (node.cost[i] === Infinity) continue;
+            const dy = Math.abs(runs[j].center - node.runs[i].center);
+            if (dy > maxJump * dx) continue; // 硬上限：gap 越長容許位移越大，但不許瞬移
+            const c = node.cost[i] + ((dy * dy) / dx) * W_SMOOTH + emission(runs[j]);
+            if (c < cost[j]) { cost[j] = c; parent[j] = { k, i }; }
+          }
         }
       }
       if (cost.every((c) => c === Infinity)) continue; // 不可達欄（孤立墨點）→ 誠實跳過
-      const node = { x, runs, cost, parent };
-      chain.push(node);
-      prev = node;
+      chain.push({ x, runs, cost, parent });
       for (let j = 0; j < cost.length; j++) {
         if (cost[j] < best.cost) best = { k: chain.length - 1, j, cost: cost[j] };
       }
     }
-    // 回溯：從全域最小成本狀態（而非最後可達欄）
+    // 回溯：從全域最小成本狀態（而非最後可達欄——否則掃描範圍比曲線寬時，
+    // 唯一能到最遠欄的是網格線 → 整條尾段騎線）。已知限制（documented）：
+    // 邊際成本為正的合法陡段若出現在「邊緣且無後續獎勵補償」，會被截短（見 follow-up）。
     const pts = [];
-    let idx = best.j;
-    for (let k = best.k; k >= 0; k--) {
-      pts.push({ x: chain[k].x, y: chain[k].runs[idx].center });
-      idx = chain[k].parent[idx];
+    let cur = { k: best.k, i: best.j };
+    while (cur) {
+      const node = chain[cur.k];
+      pts.push({ x: node.x, y: node.runs[cur.i].center });
+      cur = node.parent[cur.i];
     }
     return pts;
   };
