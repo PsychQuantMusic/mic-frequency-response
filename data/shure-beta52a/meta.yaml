@@ -1,0 +1,43 @@
+brand: Shure
+model: Beta 52A
+type: dynamic
+polar_patterns: [supercardioid]
+frequency_range_hz: [20, 10000]   # published spec ("20 to 10,000 Hz"); plotted trace ink spans ~37 Hz–11 kHz
+source:
+  url: https://content-files.shure.com/Pubs/BETA/Beta52a_Spec_Sheet.pdf
+  page: 1
+  chart: "Frequency Response (Beta 52A Supercardioid Dynamic Kick Drum Microphone — Product Specifications, ©2015 Shure)"
+  retrieved: 2026-07-09
+  alt_source: https://pubs.shure.com/view/guide/BETA52A/en-US.pdf   # official user guide (same FR plot)
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi trace（headless CLI）+ --simplify 0.05 dB 感知無損降採樣（603 raw → 99 點）。
+  校準：X 軸 log 頻率以偵測到的格線對照印製標籤 100/1000/10000 Hz（cal-x 220,100 724,10000），
+  Y 軸 linear dB（cal-y 131,10 327,-10，0 dB @ y=229，~9.8 px/dB）；獨立特徵覆核通過
+  （scoop 最低點落 ~250 Hz、presence peak 落 3.9 kHz，皆與官方文字規格「presence boost at 4 kHz」一致）。
+  重繪保真驗證（overlay_verify.py --interpolated，沿內插折線逐欄比對）：
+  solid-curve median 0.024–0.026 dB、gaps 0。
+  ⚠ 此為【多曲線圖】：官方圖含 4 條近接距離曲線（3 mm / 25 mm / 51 mm 虛線 + 0.06 m/2 ft 實線），
+  於低頻分離、~1.5 kHz 以上匯聚為單線。本 CSV 僅數位化 canonical 遠場「0.06 m (2 ft)」實線
+  （free-field typical response，最能代表本麥克風固有音色）。目檢 overlay 確認 trace 全程貼合實線、
+  未跳上虛線；預設窗量化的 max 3.93 dB 全數落在 390–840 Hz 匯聚區，為 overlay 視窗誤匹配到鄰近下降虛線
+  （正偏差＝上方較高 dB 的虛線），非 trace 失真——縮小視窗至 10 px 即降為 max 0.85 dB。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis free-field response — solid '0.06 m (2 ft)' curve as published (multi-distance chart; proximity curves at 3 mm/25 mm/51 mm not digitized)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
+  date: 2026-07-09
+  result: >
+    interpolated (default window): 602 measured cols, median 0.026 dB, max 3.93 dB, gaps 0, ambiguous 20;
+    point-wise median 0.048 dB, max 3.37 dB. 7 outliers (>1 dB) ALL in 390–840 Hz merge zone.
+    tightened window=10 px (isolates solid curve): median 0.023 dB, max 0.85 dB, gaps 0, ambiguous 21.
+    Visual overlay confirms green trace rides the solid '0.06 m (2 ft)' curve across full range
+    (scoop, merge, 4 kHz presence peak, HF notch, steep rolloff) — outliers are dashed-curve mismatches, not trace error.
+  note: >
+    ambiguous ≈ 20 columns = black vertical gridlines saturating their column (Shure black-grid convention).
+    max metric inflated by multi-curve overlap region — a documented overlay limitation on converging-curve charts,
+    NOT a redraw defect. Redraw fidelity of the solid curve is median ~0.024 dB.
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo，meta 僅記來源 URL。
