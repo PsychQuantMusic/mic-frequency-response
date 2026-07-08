@@ -16,5 +16,12 @@ method: >
 curves:
   - file: frequency-response--typical.csv
     condition: "typical on-axis response (12\" or more on axis, as published)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py, #6)"
+  date: 2026-07-08
+  result: "median |dev| 0.15 dB, max 0.81 dB, 31/31 points within ±1.0 dB"
+  note: >
+    首輪驗證抓到 500Hz–16kHz 段系統性判讀過高（+1~2 dB，「形狀合理」目測不可見），
+    依 overlay 回饋整段重讀後全數過檻。0dB 錨定：平坦區所在網格線（原圖為相對刻度、無 0dB 標籤）。
 license_note: >
   數據為事實資料（frequency→dB），從公開官方 datasheet 判讀，非原圖之重製。原圖未收錄。

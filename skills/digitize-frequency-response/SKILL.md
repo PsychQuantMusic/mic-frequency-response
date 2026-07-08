@@ -40,6 +40,11 @@ description: >
 2. 沿 log 頻率取樣（例如 `50, 63, 80, 100, 125, 160, 200, ... , 15k, 20k`，約 1/3 八度；陡峭段加密），逐點讀曲線相對 `0dB` 線的 dB 值。
 3. 刻意捕捉特徵點：低頻 rolloff 起點、presence peak、任何 notch、高頻 rolloff 終點——這些是曲線的「臉」，讀漏了資料就失真。
 4. 誠實標記精度：typical ±0.5dB，陡峭段更大。
+5. **Overlay 自我驗證（強制——原圖 = ground truth）**：跑 `scripts/overlay_verify.py`（見 `--help`；先用 `--detect-lines` 找網格線座標、對標籤定校準點），把 CSV 畫回原圖比對。
+   - **視覺為主**：`Read` overlay.png，目檢綠十字是否貼曲線。
+   - **數字為輔**：median |dev| 應 ≲0.5dB；超標點目檢判定「真偏差」（→ 重讀該點）vs「網格誤匹配」（→ 記錄後忽略）。
+   - 修正後**重跑到全數過檻**，把 `median/max dev` 記進 `meta.yaml` 的 `verification` 欄。
+   - 為什麼強制：AT2020 首次入庫時 HF 段被系統性判讀過高 1–2dB，「形狀看起來合理」目測完全抓不到——只有 overlay 比對抓得到（#6）。
 
 **pixel-trace 步驟**（乾淨 / 合成圖）：見 `digitizer/README.md`。核心是純函式 `traceCurve({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance })`，`calib` 用 4 點（2 個已知頻率定 X、2 個已知 dB 定 Y）。可透過本機 http server + 瀏覽器讀 canvas `ImageData` 包成 `pixelAt` 餵引擎（見 repo issue #2 的做法）。
 

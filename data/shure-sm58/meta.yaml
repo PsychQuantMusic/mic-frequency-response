@@ -17,5 +17,11 @@ method: >
 curves:
   - file: frequency-response--typical.csv
     condition: "typical on-axis response (as published)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py, #6)"
+  date: 2026-07-08
+  result: "median |dev| 0.29 dB, max 0.81 dB, 30/30 points within ±1.0 dB"
+  note: >
+    首輪驗證抓到陡降段 2 點偏差（11k/12.5k, +1.3~1.5 dB），依 overlay 回饋重讀修正後全數過檻。
 license_note: >
   數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo。
