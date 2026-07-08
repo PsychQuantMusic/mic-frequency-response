@@ -36,7 +36,7 @@ description: >
 | **多曲線真實圖**（線型區分的 multi-condition，如 SM7B）| **AI 視覺判讀** | trace 無線型辨識（identity 需 Level-2 學出的先驗——見 curve-extraction-priors 筆記），沿 LEGEND 線型逐條判讀仍是唯一路徑。 |
 | **乾淨 / 合成圖** | pixel-trace（greedy 或 viterbi 皆可）| 快、準，回歸測試守著。 |
 
-triage 小抄：**灰網格 + 黑曲線**（Shure 慣例）對 trace 和量化都最友善（暗度閾值天然排除網格）；**黑網格**（Audio-Technica 慣例）trace 靠 viterbi 的防禦、量化歧義較高。
+triage 小抄：**彩色曲線**（e935 藍、C414/NT1 紅…）是最友善情境——顏色是最強的曲線/網格區分特徵：trace 用 `--target-color R,G,B`（CLI）、量化用 `overlay_verify.py --target-color`（#13），異色網格天然被排除。**灰網格 + 黑曲線**（Shure 慣例）次之（暗度閾值排除網格）；**黑網格 + 黑曲線**（Audio-Technica 慣例）最難——trace 靠 viterbi 防禦、量化歧義較高。
 
 **Headless trace 流程**（單曲線真實圖的預設路徑，不需瀏覽器）：
 1. 高解析轉圖（`pdftoppm -r 400`）並 crop 出圖表區。

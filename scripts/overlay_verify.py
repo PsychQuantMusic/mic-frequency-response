@@ -119,19 +119,15 @@ def widest_dark_run(samples):
     return (best[0] + best[1]) / 2.0, best[1] - best[0] + 1
 
 
-def column_samples(gray, x, y0, y1):
-    """FR：x 欄 [y0,y1] 的 (y, lum)。"""
-    w, h = gray.size
+def column_samples(lum, w, h, x, y0, y1):
+    """FR：x 欄 [y0,y1] 的 (y, value)。lum(x,y) 由呼叫端注入（灰階或彩色匹配）。"""
     x = max(0, min(w - 1, x))
     y0, y1 = max(0, y0), min(h - 1, y1)
-    px = gray.load()
-    return [(y, px[x, y]) for y in range(y0, y1 + 1)]
+    return [(y, lum(x, y)) for y in range(y0, y1 + 1)]
 
 
-def ray_samples(gray, cx, cy, ux, uy, t0, t1):
-    """polar：沿射線 (cx,cy)+t*(ux,uy)，t∈[t0,t1] 的 (t, lum)（最近像素取樣）。"""
-    w, h = gray.size
-    px = gray.load()
+def ray_samples(lum, w, h, cx, cy, ux, uy, t0, t1):
+    """polar：沿射線 (cx,cy)+t*(ux,uy)，t∈[t0,t1] 的 (t, value)。"""
     out = []
     for t in range(int(t0), int(t1) + 1):
         if t < 0:
@@ -139,7 +135,7 @@ def ray_samples(gray, cx, cy, ux, uy, t0, t1):
         x = round(cx + t * ux)
         y = round(cy + t * uy)
         if 0 <= x < w and 0 <= y < h:
-            out.append((t, px[x, y]))
+            out.append((t, lum(x, y)))
     return out
 
 
@@ -199,6 +195,9 @@ def main():
     ap.add_argument("--window", type=int, default=40)
     ap.add_argument("--tolerance", type=float, default=1.0)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--target-color", default=None,
+                    help="彩色曲線模式：R,G,B——sampler 以 RGB 色距 ≤ --color-tolerance 判 match（取代灰階暗度）。顏色是最強的曲線/網格區分特徵（#13）")
+    ap.add_argument("--color-tolerance", type=float, default=60.0)
     ap.add_argument("--marker-color", default="0,220,90", help="標記色 R,G,B（多曲線累積疊圖用不同色；luminance 需 >135，否則鏈接疊圖時舊標記會被當暗像素自污染量化）")
     ap.add_argument("--detect-lines", action="store_true")
     args = ap.parse_args()
@@ -252,7 +251,24 @@ def main():
     if not points:
         sys.exit("CSV 無資料點")
 
-    gray = img.convert("L")
+    w_img, h_img = img.size
+    if args.target_color:
+        try:
+            tc = tuple(int(v) for v in args.target_color.split(","))
+            assert len(tc) == 3
+        except (ValueError, AssertionError):
+            sys.exit(f"--target-color 格式錯誤（需 R,G,B）: {args.target_color}")
+        rgb_px = img.copy().load()  # 快照：markers 畫在 img 上，取樣不得看到自己的標記（同灰階路徑的 convert 快照語意）
+        ctol = args.color_tolerance
+        def lum(x, y):
+            r, g, b = rgb_px[x, y][:3]
+            d = ((r - tc[0]) ** 2 + (g - tc[1]) ** 2 + (b - tc[2]) ** 2) ** 0.5
+            return 0 if d <= ctol else 255  # match → 視為「暗」
+    else:
+        gray_img = img.convert("L")
+        gray_px = gray_img.load()
+        def lum(x, y):
+            return gray_px[x, y]
     draw = ImageDraw.Draw(img)
     deviations, gaps, ambiguous = [], [], []
 
@@ -275,7 +291,7 @@ def main():
                 continue
             for delta in (0.0, 3.0, -3.0):
                 cx, cy, ux, uy, r_exp = to_ray(a + delta, b)
-                samples = ray_samples(gray, cx, cy, ux, uy, r_exp - args.window, r_exp + args.window)
+                samples = ray_samples(lum, w_img, h_img, cx, cy, ux, uy, r_exp - args.window, r_exp + args.window)
                 cand = widest_dark_run(samples) if samples else None
                 if cand is None:
                     continue
@@ -304,7 +320,7 @@ def main():
                 extra = {}
         else:
             extra = {}
-            samples = column_samples(gray, xi, yi - args.window, yi + args.window)
+            samples = column_samples(lum, w_img, h_img, xi, yi - args.window, yi + args.window)
             expected_pos, dev_slope = py, dslope
             found = widest_dark_run(samples) if samples else None
             if found is None:

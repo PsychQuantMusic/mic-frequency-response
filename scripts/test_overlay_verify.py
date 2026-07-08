@@ -177,7 +177,33 @@ def main():
         rep5 = run_polar_verify(pchart, pneg, td / "o5.png")
         assert rep5["gaps"] >= 1, f"負半徑點應列 gap: {rep5}"
 
-    print("✓ overlay_verify selftest: 5/5 passed (FR ×2 + polar ×2 + negative-radius gap)")
+        # Test 6: 彩色曲線模式（#13）——藍曲線 + 黑網格，--target-color 天然排除網格
+        cimg = Image.new("RGB", (W, H), "white")
+        cd = ImageDraw.Draw(cimg)
+        for db in (10, 0, -10, -20, -30):
+            _, py = to_pixel(1000, db)
+            cd.line([(100, py), (1100, py)], fill="black", width=2)
+        prev = None
+        for x in range(100, 1101):
+            freq = 10 ** (math.log10(20) + (x - 100) * (math.log10(20000) - math.log10(20)) / 1000)
+            _, py = to_pixel(freq, curve_fn(freq))
+            if prev:
+                cd.line([prev, (x, py)], fill=(0, 60, 200), width=3)
+            prev = (x, py)
+        cchart = td / "color.png"
+        cimg.save(cchart)
+        r6 = subprocess.run(
+            [sys.executable, str(SCRIPT), str(cchart), str(good),
+             "--cal-x", "100,20", "1100,20000", "--cal-y", "50,0", "450,-40",
+             "--target-color", "0,60,200",
+             "--out", str(td / "o6.png"), "--json"],
+            capture_output=True, text=True, check=True)
+        rep6 = json.loads(r6.stdout)
+        assert rep6["matched"] == rep6["points"], f"彩色模式應全匹配（黑網格不干擾）: {rep6}"
+        assert rep6["median_abs_dev_db"] < 0.3, f"彩色模式 median ≈0: {rep6['median_abs_dev_db']}"
+        assert not rep6["ambiguous_vertical_runs"], f"黑網格不應成為 ambiguous: {rep6}"
+
+    print("✓ overlay_verify selftest: 6/6 passed (FR ×2 + polar ×2 + neg-radius + color)")
 
 
 if __name__ == "__main__":
