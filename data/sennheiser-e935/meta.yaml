@@ -1,0 +1,37 @@
+brand: Sennheiser
+model: e935
+type: dynamic
+polar_patterns: [cardioid]
+frequency_range_hz: [40, 18000]
+source:
+  url: https://www.sennheiser.com/globalassets/digizuite/41696-en-sp_1218_v1.0_e_935_product_specification_en.pdf
+  page: 2
+  chart: "Frequency Response (0°, 1 m)"
+  scale: "dBV absolute; digitized as relative dB (0 dB = -50 dBV flat plateau gridline)"
+  retrieved: 2026-07-08
+digitized_by: che (via Claude)
+digitized_on: 2026-07-08
+method: >
+  AI 視覺判讀官方 product-specification FR 圖（p.2）。曲線為藍色（cyan），與黑色網格不同色，
+  故用 blue-channel column-scan 精確抽線（非 grayscale widest-run）。原圖 Y 軸為絕對 dBV，
+  依 AT2020 慣例錨定 0 dB = 平坦區所在的 -50 dBV 網格線（實測平坦區 -50.7 dBV，即 0dB 對應 -50.7）。
+  best-effort ±0.5 dB。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "on-axis (0°, 1 m) typical response, relative to flat plateau"
+polar_note: >
+  官方 p.2 有發表 polar pattern，但為「8 條彩色曲線的左右半分圖」：左半（cyan）125/250/500/1000 Hz、
+  右半（purple）2000/4000/8000/16000 Hz，0° 在上（Sennheiser 慣例）、外圈 0dB、5dB/圈。
+  同色群組曲線在前方（0-90°）近乎完全重合、後方以難以分辨的虛線樣式交疊；此密度下無法在 facts-only
+  標準下可靠地逐頻分離判讀，故本批**未** digitize polar 各曲線（誠實跳過優於輸出不可靠數據）。
+  FR 已捕捉主要頻譜行為。未來若要補 polar：需更高解析原圖 + 逐色/逐線型分離的 tracer。
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py, #6)"
+  date: 2026-07-08
+  result: "FR: median |dev| 0.05 dB, max 0.132 dB (28 pts, 50-20,000 Hz). blue-channel scan 抽線後 overlay 全數 ±1.0 內。"
+  note: >
+    presence lift 為 e935 招牌（4-10kHz broad ~+5 dB）；高頻於 ~12kHz 後陡降至 -21dB@20kHz。
+    curve 於左邊界 40Hz 起（~-18dB），CSV 自 50Hz（清晰起點）起記。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 product specification 判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo。
