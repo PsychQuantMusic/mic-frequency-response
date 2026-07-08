@@ -26,16 +26,34 @@ description: >
 
 > **版權鐵律**：原圖（PDF/PNG/截圖）只暫存在 job scratch 或 repo 外，**絕不 commit**。數據（freq→dB）是不受著作權保護的 facts；原圖是廠商的創作。`meta.yaml` 只記來源 URL。
 
-### 2. Digitize — 依圖的類型二選一（關鍵決策）
+### 2. Digitize — 依圖的類型選方法（關鍵決策）
 
-這是整個 skill 最重要的判斷。先看圖：**曲線與座標軸網格線是否同色？**
+這是整個 skill 最重要的判斷。先看圖：**一張圖上有幾條曲線？**
 
 | 圖的類型 | 方法 | 為什麼 |
 |----------|------|--------|
-| **真實廠商圖**（有座標軸網格線，通常與曲線同為黑色）| **AI 視覺判讀**（你自己看圖讀點）| 網格線橫跨每一欄，`digitizer/` 的全欄質心 pixel-trace 會把 +10/0/-10 等網格交點一起抓進質心 → 輸出看似合理但錯的 dB。你（多模態）看圖沿 log 頻率取樣讀 dB 反而穩健。這是 repo issue #3 記錄的真實限制。 |
-| **乾淨 / 合成圖**（單一曲線、無干擾網格）| **pixel-trace**（repo 的 `digitizer/` 引擎）| 快、準、可重現，已有 12 個單元測試 + 合成圖回歸測試守。 |
+| **單曲線真實圖**（含同色網格也行）| **seeded trace 優先**（`strategy: viterbi`，headless CLI 見下）| #3 的種子連續性 + #9 的 Viterbi 全域最優已解掉同色網格污染（decoy 分岔、遮擋、網格相切、粗網格線都有防禦與測試）。真實 SM58 官方圖實測：30/30 對照點、max 0.77dB。**可重現、免判讀誤差**——比 AI 判讀更該信。 |
+| **多曲線真實圖**（線型區分的 multi-condition，如 SM7B）| **AI 視覺判讀** | trace 無線型辨識（identity 需 Level-2 學出的先驗——見 curve-extraction-priors 筆記），沿 LEGEND 線型逐條判讀仍是唯一路徑。 |
+| **乾淨 / 合成圖** | pixel-trace（greedy 或 viterbi 皆可）| 快、準，回歸測試守著。 |
 
-**AI 判讀步驟**（真實圖的預設路徑）：
+triage 小抄：**灰網格 + 黑曲線**（Shure 慣例）對 trace 和量化都最友善（暗度閾值天然排除網格）；**黑網格**（Audio-Technica 慣例）trace 靠 viterbi 的防禦、量化歧義較高。
+
+**Headless trace 流程**（單曲線真實圖的預設路徑，不需瀏覽器）：
+1. 高解析轉圖（`pdftoppm -r 400`）並 crop 出圖表區。
+2. **校準**：`python3 scripts/overlay_verify.py chart.png --detect-lines` 印網格線候選 → 對軸標籤定 2 個 X 點（已知 Hz）+ 2 個 Y 點（已知 dB）。
+   **校準自我核驗（強制）**：用第三條已知標籤線覆核——例如定了 100Hz/10kHz 後，驗算 2kHz/20kHz 線的預測位置是否吻合偵測值（decade 寬度一致性）。校準錯 → 判讀與驗證**一起**錯、抓不到（#6 教訓）。
+3. 看圖挑一個**種子點**（曲線上、避開與網格線相切處），然後：
+   ```bash
+   python3 scripts/dump_pixels.py chart.png /tmp/chart.bin   # 印 "W H"
+   node digitizer/cli.js --bin /tmp/chart.bin --size WxH \
+     --cal-x PX1,HZ1 PX2,HZ2 --cal-y PY1,DB1 PY2,DB2 \
+     --seed PX,PY [--x-range X0,X1] [--max-jump 14] > /tmp/traced.csv
+   ```
+   實例（SM58 官方圖 @400dpi）：`--cal-x 405,100 1244,10000 --cal-y 141,10 469,-10 --seed 820,313 --x-range 150,1372 --max-jump 14`。
+4. traced.csv 沿 log 頻率**重取樣成 ~1/3 八度**的入庫點（trace 每欄一點太密；重取樣時保留特徵點——peak/notch/rolloff 端點）。
+5. **Overlay 驗證（強制，同 AI 判讀路徑的第 5 步）**——trace 也可能被校準錯誤或 trace 缺陷污染，原圖 ground-truth 比對不因方法而豁免。
+
+**AI 判讀步驟**（多曲線圖的路徑；單曲線圖 trace 失敗時的 fallback）：
 1. 讀懂座標系：X 軸 log（找 `20 / 50 / 100 / 1000 / 10000` 等標籤定範圍與方向）、Y 軸 linear dB（找 `0` 線與刻度間距）。高解析 crop + 放大看能大幅提升精度。
 2. 沿 log 頻率取樣（例如 `50, 63, 80, 100, 125, 160, 200, ... , 15k, 20k`，約 1/3 八度；陡峭段加密），逐點讀曲線相對 `0dB` 線的 dB 值。
 3. 刻意捕捉特徵點：低頻 rolloff 起點、presence peak、任何 notch、高頻 rolloff 終點——這些是曲線的「臉」，讀漏了資料就失真。
@@ -46,7 +64,7 @@ description: >
    - 修正後**重跑到全數過檻**，把 `median/max dev` 記進 `meta.yaml` 的 `verification` 欄。
    - 為什麼強制：AT2020 首次入庫時 HF 段被系統性判讀過高 1–2dB，「形狀看起來合理」目測完全抓不到——只有 overlay 比對抓得到（#6）。
 
-**pixel-trace 步驟**（乾淨 / 合成圖）：見 `digitizer/README.md`。核心是純函式 `traceCurve({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance })`，`calib` 用 4 點（2 個已知頻率定 X、2 個已知 dB 定 Y）。可透過本機 http server + 瀏覽器讀 canvas `ImageData` 包成 `pixelAt` 餵引擎（見 repo issue #2 的做法）。
+**瀏覽器 UI 路徑**（人工互動時的替代）：本機 http server + `digitizer/index.html`，點 4 個校準點 + 取色（取色點即種子），UI 已走 viterbi。引擎細節見 `digitizer/README.md`。
 
 ### 3. 產出 + 入庫
 
@@ -94,5 +112,5 @@ license_note: >
 ## 範例
 
 **Input**: 「把 Shure SM58 加進資料庫」
-**Flow**: WebSearch 官方 SM58 user-guide PDF → curl 下載 → `pdftoppm` 轉頁 → 找到第 6 頁「Typical SM58 Frequency Response」→ 判斷是真實圖（黑曲線 + 同色黑網格）→ 走 AI 視覺判讀，沿 log 頻率取樣 ~30 點 → 寫 `data/shure-sm58/frequency-response--typical.csv` + `meta.yaml`（method: AI-read）→ commit（原 PDF/PNG 留 scratch、不進 repo）。
+**Flow**: WebSearch 官方 SM58 user-guide PDF → curl 下載 → `pdftoppm` 轉頁 → 找到第 6 頁「Typical SM58 Frequency Response」→ 單曲線真實圖 → **headless seeded trace**（detect-lines 校準 + 覆核 → dump_pixels + cli.js → 重取樣 ~30 點）→ overlay 驗證過檻 → 寫 `data/shure-sm58/frequency-response--typical.csv` + `meta.yaml`（method 記 seeded-viterbi trace + 驗證數字）→ commit（原 PDF/PNG 留 scratch、不進 repo）。
 **Output**: `data/shure-sm58/` 一個 CSV + 一個 meta.yaml，曲線形狀與官方圖貼合（rolloff + presence peak + notch + 高頻 rolloff）。
