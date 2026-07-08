@@ -31,7 +31,7 @@ function parseCurves(metaText) {
   let inCurves = false;
   let current = null;
   for (const line of lines) {
-    if (/^curves:\s*$/.test(line)) { inCurves = true; continue; }
+    if (/^curves:\s*(#.*)?$/.test(line)) { inCurves = true; continue; } // 容許行尾註解
     if (inCurves && /^[A-Za-z_]/.test(line)) { inCurves = false; } // 下一個 top-level key
     if (!inCurves) continue;
     if (/^\s*#/.test(line)) continue; // 註解
@@ -41,16 +41,16 @@ function parseCurves(metaText) {
       current = {};
       // flow style：- { file: x, kind: y, condition: "..." }
       const flow = entryStart[1];
-      const fFile = /file:\s*([^,}\s]+)/.exec(flow);
-      const fKind = /kind:\s*([^,}\s]+)/.exec(flow);
+      const fFile = /file:\s*"?([^,}"\s]+)"?/.exec(flow);
+      const fKind = /kind:\s*"?([^,}"\s]+)"?/.exec(flow);
       if (fFile) current.file = fFile[1];
       if (fKind) current.kind = fKind[1];
       continue;
     }
     if (current) {
       // block style 續行
-      const bFile = /^\s+file:\s*(\S+)/.exec(line);
-      const bKind = /^\s+kind:\s*(\S+)/.exec(line);
+      const bFile = /^\s+file:\s*"?([^"\s]+)"?/.exec(line);
+      const bKind = /^\s+kind:\s*"?([^"\s]+)"?/.exec(line);
       if (bFile) current.file = bFile[1];
       if (bKind) current.kind = bKind[1];
     }
@@ -78,6 +78,8 @@ for (const dir of micDirs()) {
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].split(',');
         assert.equal(parts.length, 2, `${f}:${i + 1} 應為兩欄`);
+        // Number('') === 0 —— 空欄位會靜默變 0（cluster verify MEDIUM finding），先擋
+        assert.ok(parts[0].trim() !== '' && parts[1].trim() !== '', `${f}:${i + 1} 欄位不得為空`);
         const a = Number(parts[0]);
         const b = Number(parts[1]);
         assert.ok(Number.isFinite(a) && Number.isFinite(b), `${f}:${i + 1} 需為 finite 數值`);

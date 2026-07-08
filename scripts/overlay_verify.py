@@ -216,6 +216,9 @@ def main():
         assert len(marker) == 3
     except (ValueError, AssertionError):
         sys.exit(f"--marker-color 格式錯誤（需 R,G,B）: {args.marker_color}")
+    _lum = 0.299 * marker[0] + 0.587 * marker[1] + 0.114 * marker[2]
+    if _lum < 135:
+        print(f"⚠ marker 色 luminance {_lum:.0f} < 135 —— 鏈接疊圖時舊標記會被當暗像素自污染量化", file=sys.stderr)
 
     # --- mode setup ---
     if args.polar:
@@ -264,6 +267,12 @@ def main():
             # 巨型/融合 run。候選 ±3°（曲線 3° 內幾乎不變、輻條是固定角度細線）擇優。
             found, run_w_limit = None, 15  # 融合段（輻條+曲線+圈）遠寬於曲線 stroke
             amb_seen = None
+            used_delta = 0.0
+            # 校準範圍外（dB 低於圓心外插）→ 負半徑會把標記鏡射到反方向，直接列 gap
+            _, _, _, _, r_check = to_ray(a, b)
+            if r_check < 0:
+                gaps.append({col_names[0]: a, "level_db": b, "note": "below chart center (negative radius)"})
+                continue
             for delta in (0.0, 3.0, -3.0):
                 cx, cy, ux, uy, r_exp = to_ray(a + delta, b)
                 samples = ray_samples(gray, cx, cy, ux, uy, r_exp - args.window, r_exp + args.window)
@@ -278,6 +287,7 @@ def main():
                     continue
                 found = cand
                 expected_pos, dev_slope = r_exp, slope
+                used_delta = delta
                 break
             if found is None:
                 if amb_seen is not None:
@@ -286,7 +296,14 @@ def main():
                     gaps.append({col_names[0]: a, "level_db": b})
                 continue
             run_pos, run_w = found
+            if used_delta:
+                # 偏移角量化以「原角度的 dB」比「偏移角的曲線」——陡峭段為近似值，
+                # 不可作為單獨修值依據（skill 紀律：量化+目測一致才修）
+                extra = {"angle_offset_deg": used_delta}
+            else:
+                extra = {}
         else:
+            extra = {}
             samples = column_samples(gray, xi, yi - args.window, yi + args.window)
             expected_pos, dev_slope = py, dslope
             found = widest_dark_run(samples) if samples else None
@@ -301,6 +318,7 @@ def main():
         deviations.append({
             col_names[0]: a, "level_db": b,
             "dev_db": round((run_pos - expected_pos) * dev_slope, 3),
+            **extra,
         })
 
     out_path = args.out or (args.image + ".overlay.png")

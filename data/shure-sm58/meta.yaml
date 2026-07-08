@@ -40,6 +40,6 @@ polar_verification:
   date: 2026-07-08
   result: >
     6 curves quantified (window ±25px ≈ ±2dB, spoke-avoid ±3°): median |dev| 0.40–0.79 dB,
-    max ≤ 1.47 dB — within declared ±1.5 dB. First round caught 5 points (1k@120°, 2k@60°/180°,
+    max ≤ 1.47 dB — within declared ±1.5 dB. First round caught 6 points (1k@120°, 2k@60°/180°,
     4k@60°/90°, 8k@150°) read low/high in crowded multi-curve regions; corrected per overlay.
   note: "多曲線圖量化有 match 歧義（skill 文件化限制）；視覺 overlay 為主判。"

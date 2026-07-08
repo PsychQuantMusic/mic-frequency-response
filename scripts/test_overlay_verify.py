@@ -167,7 +167,17 @@ def main():
         rep4 = run_polar_verify(pchart, pbad, td / "o4.png")
         assert rep4["median_abs_dev_db"] > 1.5, f"polar +2dB 偏移應被抓: {rep4['median_abs_dev_db']}"
 
-    print("✓ overlay_verify selftest: 4/4 passed (FR perfect/offset + polar perfect/offset)")
+        # Test 5: 校準範圍外（負半徑）→ 列 gap 不 crash、不鏡射亂畫
+        pneg = td / "pneg.csv"
+        with open(pneg, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["angle_deg", "level_db"])
+            w.writerow([0, 0])
+            w.writerow([90, -40])  # 低於 -25 圓心外插 → 負半徑
+        rep5 = run_polar_verify(pchart, pneg, td / "o5.png")
+        assert rep5["gaps"] >= 1, f"負半徑點應列 gap: {rep5}"
+
+    print("✓ overlay_verify selftest: 5/5 passed (FR ×2 + polar ×2 + negative-radius gap)")
 
 
 if __name__ == "__main__":
