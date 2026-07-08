@@ -1,0 +1,41 @@
+brand: AKG
+model: D112 MkII
+type: dynamic
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 17000]   # published spec ("20 Hz to 17 kHz (see frequency response trace)"); plotted trace ink spans ~20 Hz–20 kHz (full chart width)
+source:
+  url: https://www.akg.com/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwef0475a5/pdfs/AKG_d112_mkII_cutsheet.pdf
+  page: 2
+  chart: "Frequency response trace (D112 MKII Professional Dynamic Bass Drum Microphone — CUTSHEET / Data Sheet, ©2015 HARMAN)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi trace（headless CLI, digitizer/cli.js）於官方 cutsheet 第 2 頁 FR 圖，
+  400 dpi 全頁渲染直接 trace（未裁切；--target-color 225,35,42 只鎖紅色曲線，黑色格線/文字天然排除）。
+  --simplify 0.05 dB 感知無損降採樣（1320 raw → 290 點）。
+  校準（實讀軸標籤，非由 log 間距推）：X 軸 log 頻率以偵測格線對照印製標籤
+  100/10000 Hz（cal-x 765,100 1642,10000；438.5 px/decade，經 20/50/200/500/1000/2000/5000/20000 全數覆核自洽），
+  Y 軸 linear dB（cal-y 2281.5,20 2707.5,-30；0 dB @ y≈2451.5、8.5 px/dB，經 y 軸標籤 crop 逐格核對）。
+  獨立特徵覆核通過（皆與官方文字規格一致）：低頻 bump 峰值 ~+4 dB @ ~100 Hz（"solid and powerful response below 100 Hz"）、
+  低中頻 scoop 至 ~0 dB @ 300–800 Hz、presence peak ~+6 dB @ ~3.2 kHz（"narrow-band presence boost at 4 kHz"）、
+  ~7–8 kHz 淺谷、~13–14 kHz 小 bump、HF rolloff 至 ~-9.5 dB @ 20 kHz。
+  圖上另有紅色「10 cm」虛線（近距 10 cm proximity bass boost，僅低頻段），為 decoy；本次只取實線（typical, free-field）曲線，
+  viterbi 種子點 (1400,2403) 置於實線且遠離虛線（>600 Hz 僅實線存在），連續性使 trace 全程貼實線。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis free-field response (solid curve, as published; NOT the dashed 10 cm close-mic curve)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated --target-color 225,35,42)"
+  date: 2026-07-09
+  result: >
+    290 pts, matched 290, gaps 0, ambiguous 0. 重繪保真（沿內插折線逐欄比對，1319 measured cols）：
+    median |dev| 0.005 dB。視覺覆核（overlay.png）：綠十字全程貼合實線紅曲線（bass rolloff、~100 Hz bump、
+    low-mid dip、~3.2 kHz presence peak、HF rolloff 皆吻合）。
+  note: >
+    預設 window(±40 px, ±4.7 dB) 下 max |dev| 4.34 dB，出現在 153–320 Hz 共 13 欄——為 column-scan 誤抓「10 cm」
+    紅虛線 decoy（dev 量級恰等於虛線與實線的垂直間距，隨兩線收斂而遞減），非 trace 誤差；目檢 overlay 已確認綠十字在實線上。
+    收窄 window 至 ±16 px（排除虛線）後 max |dev| 降至 1.58 dB（唯一殘留在 ~317 Hz 兩線收斂區），gaps 仍 0。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 AKG D112 MkII cutsheet PDF 判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo。
