@@ -200,7 +200,12 @@ function traceFromSeedViterbi({ pixelAt, width, height, xStart, xEnd, calib, tar
     Math.abs(r.center - seed.py) < Math.abs(best.center - seed.py) ? r : best);
   if (Math.abs(anchor.center - seed.py) > maxJump) return [];
 
-  const W_SMOOTH = 0.03; // 平滑先驗強度：夾在「陡降段（~8px/欄）淨成本仍為負、可延伸」與「跨 gap 重接可負擔」之間；decoy 防護不靠它（靠 maxJump 硬限的 dead-end 剪枝）
+  // 轉移成本尺度（#11）：以 maxJump 正規化 —— K·Δy²/(maxJump²·Δx)。
+  // 保證「合法範圍內的任何單欄步進」成本 ≤ K=2 < 3 ≤ 常規曲線寬度獎勵 →
+  // 合法斜率永不淨正、邊緣陡段不再被全域最小 terminal 截短（#9 verify MED）。
+  // user 調 maxJump 時語意自動跟隨（舊固定 W_SMOOTH 與 maxJump 脫鉤是設計缺陷）。
+  // 已知邊界：size ≤ 2 的細 stroke（獎勵 < 2）+ 極陡仍可能截短——documented。
+  const K_SMOOTH = 2;
   const W_WIDTH = 1;    // run 寬度加分權重
   const W_GRIDLINE = 8; // 「純網格線 run」每欄罰值：> 寬度獎勵上限(6) → 純線 run 淨成本必為正，杜絕「騎線多活幾欄」在全域最小下勝出
 
@@ -211,10 +216,10 @@ function traceFromSeedViterbi({ pixelAt, width, height, xStart, xEnd, calib, tar
   // （零轉移成本 + 多活 56 欄）→ 整條尾段 11dB 錯。
   const gridRows = new Set();
   {
-    const spanCount = Math.max(1, Math.floor((x1 - x0) / 2) + 1);
+    const spanCount = Math.max(1, x1 - x0 + 1); // stride 1（#11：stride 2 對 dashed/抗鋸齒網格線有 parity 敏感性）
     for (let y = 0; y < height; y++) {
       let dark = 0;
-      for (let x = x0; x <= x1; x += 2) {
+      for (let x = x0; x <= x1; x++) {
         const c = pixelAt(x, y);
         if (c[3] >= 128 && colorDistance(c, targetColor) <= tolerance) dark++;
       }
@@ -281,7 +286,7 @@ function traceFromSeedViterbi({ pixelAt, width, height, xStart, xEnd, calib, tar
             if (node.cost[i] === Infinity) continue;
             const dy = Math.abs(runs[j].center - node.runs[i].center);
             if (dy > maxJump * dx) continue; // 硬上限：gap 越長容許位移越大，但不許瞬移
-            const c = node.cost[i] + ((dy * dy) / dx) * W_SMOOTH + emission(runs[j]);
+            const c = node.cost[i] + (K_SMOOTH * dy * dy) / (maxJump * maxJump * dx) + emission(runs[j]);
             if (c < cost[j]) { cost[j] = c; parent[j] = { k, i }; }
           }
         }

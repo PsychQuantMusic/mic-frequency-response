@@ -219,3 +219,66 @@ test('viterbi on clean image matches truth (no regression vs greedy quality)', (
   assert.equal(pts.length, 1001);
   assert.ok(maxErrDb < 0.4, `乾淨圖應精準（got ${maxErrDb.toFixed(2)} dB）`);
 });
+
+// ══ #11 terminal 語意：合法斜率永不淨正 ══
+
+// steep-at-edge：陡段在曲線「右緣」結束、無後續水平 tail 補償成本。
+// 舊尺度（W_SMOOTH 固定 0.03）下 dy≈maxJump 的合法步進淨成本為正 → 全域最小截短邊緣段。
+test('steep segment at the curve edge is fully traced (no tail to compensate)', () => {
+  // 曲線只到 x=690：平走後在 [660,690] 以 10px/欄陡降（y 150→450，全程畫布內），
+  // 然後結束（右邊空白、無補償 tail）。注意 truth 不得超出畫布（前一版 truth 到 x=700
+  // 時 y=550 > height——引擎正確追到畫布邊緣被誤判為截短，測試設計錯）。
+  const edgeTruth = (x) => (x < 660 ? 150 : 150 + (x - 660) * 10);
+  const dark = new Set();
+  for (let x = 100; x <= 690; x++) {
+    const yc = Math.round(edgeTruth(x));
+    for (let dy = -1; dy <= 1; dy++) dark.add(`${x},${yc + dy}`);
+  }
+  const pixelAt = (x, y) => (dark.has(`${x},${y}`) ? BLACK : WHITE);
+  const pts = traceCurve({
+    pixelAt, width: 1200, height: 500,
+    xStart: 100, xEnd: 1100, calib, targetColor: BLACK, tolerance: 60,
+    seed: { px: 300, py: 150 }, strategy: 'viterbi', maxJump: 12,
+  });
+  const { maxErrDb, tailCount } = analyze(pts, edgeTruth, 680);
+  // 陡降最後 10 欄（x 680-690）必須被覆蓋——它們是曲線的真實終點
+  assert.ok(tailCount >= 10, `邊緣陡段應被完整追到（got tail ${tailCount}）`);
+  assert.ok(maxErrDb < 0.5, `誤差（got ${maxErrDb.toFixed(2)} dB）`);
+});
+
+// 長 decoy × 短 truth tail：decoy 平滑優勢大、真曲線 dead-end 後補償短。
+// Codex 指出 dead-end 剪枝與成本尺度耦合——此測試顯式鎖住。
+test('long decoy vs short truth tail: documented Level-1 ambiguity + seed-placement resolution', () => {
+  // 真曲線：平走到 500 → [500,530] 陡降 8px/欄 → 平走只到 640（短 tail ~110 欄）
+  const shortTruth = (x) => (x < 500 ? 150 : x <= 530 ? 150 + (x - 500) * 8 : 390);
+  const dark = new Set();
+  for (let x = 100; x <= 640; x++) {
+    const yc = Math.round(shortTruth(x));
+    for (let dy = -1; dy <= 1; dy++) dark.add(`${x},${yc + dy}`);
+  }
+  // decoy：y=150 水平線 500→1050（很長，551 欄）後 dead-end
+  for (let x = 500; x <= 1050; x++) for (let dy = -1; dy <= 1; dy++) dark.add(`${x},${150 + dy}`);
+  const pixelAt = (x, y) => (dark.has(`${x},${y}`) ? BLACK : WHITE);
+  const pts = traceCurve({
+    pixelAt, width: 1200, height: 500,
+    xStart: 100, xEnd: 1100, calib, targetColor: BLACK, tolerance: 60,
+    seed: { px: 300, py: 150 }, strategy: 'viterbi', maxJump: 12,
+  });
+  // Documented boundary（#11）：兩支同寬同色、都 dead-end——decoy 較長（551 欄）、
+  // 真曲線較短（陡降 + 110 欄 tail）。Level-1 沒有任何手寫特徵能區分「哪支才是曲線」
+  // （寬度同、顏色同、都平滑、都非全跨網格），選累積獎勵較多的長支是**合理**歧義判定，
+  // 不是缺陷。破歧義屬 Level-2（線型/語義）或 user 種子位置（點在分岔後的目標支上）。
+  const { maxErrDb } = analyze(pts, shortTruth, 540);
+  assert.ok(maxErrDb > 5, `目前語意：長支勝出（documented；got ${maxErrDb.toFixed(2)} dB）`);
+  // 注意：種子在目標支上「不」足以破歧義——種子只是必經點，管不住曲線終點後
+  // lookback 跳上遠處長線（dy ≤ maxJump×dx 隨 dx 線性放寬）。實務破法：
+  // (a) --x-range 限掃描範圍到曲線實際跨度（CLI 既有）；
+  // (b) 真實圖中這類長直線 = 軸線/網格 → 已被橫向覆蓋率旗標懲罰，場景本身罕見。
+  const pts2 = traceCurve({
+    pixelAt, width: 1200, height: 500,
+    xStart: 100, xEnd: 640, calib, targetColor: BLACK, tolerance: 60,
+    seed: { px: 600, py: Math.round(shortTruth(600)) }, strategy: 'viterbi', maxJump: 12,
+  });
+  const r2 = analyze(pts2, shortTruth, 540);
+  assert.ok(r2.maxErrDb < 0.5, `x-range 限界後正確（got ${r2.maxErrDb.toFixed(2)} dB）`);
+});
