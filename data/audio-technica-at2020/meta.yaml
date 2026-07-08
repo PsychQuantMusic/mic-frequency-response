@@ -1,0 +1,20 @@
+brand: Audio-Technica
+model: AT2020
+type: condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://docs.audio-technica.com/us/at2020_english.pdf
+  chart: "Frequency Response (12\" or more on axis)"
+  scale: "5 dB per division"
+  retrieved: 2026-07-08
+digitized_by: che (via Claude)
+digitized_on: 2026-07-08
+method: >
+  AI 視覺判讀官方 datasheet 頻響圖。原圖含黑色網格線（粗頻率線 + 細 dB 線），
+  pixel-trace 不適用（見 #3）。曲線平坦、5-15kHz slight HF rise。best-effort ±0.5 dB。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response (12\" or more on axis, as published)"
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 datasheet 判讀，非原圖之重製。原圖未收錄。
