@@ -74,6 +74,55 @@ test('seed continuity tracing recovers the curve despite same-color grid', () =>
   }
 });
 
+test('giant vertical run is rejected even when its center is near the curve (HIGH fix)', () => {
+  // 曲線走在圖中央高度（-20dB → y=250 = 垂直網格線 run 的中心附近）：
+  // 巨型 run 的中心與 prevY 距離 ≈ 0，僅靠 maxJump 過濾會被接受 → 必須被 maxRunSize 明確拒絕
+  const t = makeTransform(calib);
+  const dark = new Set();
+  const gridX = [300, 500, 700, 900];
+  for (const x of gridX) for (let y = 30; y < 470; y++) dark.add(`${x},${y}`);
+  const yc = Math.round(t.toPixel(1000, -20).py); // y=250，貼近垂直 run 中心
+  for (let x = 100; x <= 1100; x++) for (let dy = -1; dy <= 1; dy++) dark.add(`${x},${yc + dy}`);
+  const pixelAt = (x, y) => (dark.has(`${x},${y}`) ? BLACK : WHITE);
+
+  const pts = traceCurve({
+    pixelAt, width: 1200, height: 500,
+    xStart: 100, xEnd: 1100, calib, targetColor: BLACK, tolerance: 60,
+    seed: { px: 600, py: yc },
+  });
+  // 垂直線欄（曲線與線融合成巨型 run）誠實跳過；其餘全數還原且零污染
+  for (const p of pts) {
+    assert.ok(Math.abs(p.level_db - -20) < 0.3, `不得被巨型 run 拉偏 (got ${p.level_db})`);
+  }
+  const gridFreqs = gridX.map((x) => t.toData(x, 0).freq_hz);
+  for (const gf of gridFreqs) {
+    assert.ok(!pts.some((p) => Math.abs(Math.log10(p.freq_hz / gf)) < 1e-6), `網格欄應為 gap (${gf.toFixed(0)}Hz)`);
+  }
+  assert.ok(pts.length >= 990, `其餘欄應還原 (got ${pts.length})`);
+});
+
+test('seed on a vertical gridline column returns empty (honest refusal)', () => {
+  const img = makeContaminatedImage({ width: 1200, height: 500, curveFn });
+  const t = makeTransform(calib);
+  const gridPx = Math.round(t.toPixel(1000, 0).px); // 1000Hz 垂直網格線欄
+  const pts = traceCurve({
+    pixelAt: img.pixelAt, width: 1200, height: 500,
+    xStart: 100, xEnd: 1100, calib, targetColor: BLACK, tolerance: 60,
+    seed: { px: gridPx, py: 250 }, // 點在垂直線上（該欄只有巨型 run）
+  });
+  assert.equal(pts.length, 0, '種子欄只有巨型 run → 誠實回空');
+});
+
+test('seed far from any run returns empty (off-curve pick refused)', () => {
+  const img = makeContaminatedImage({ width: 1200, height: 500, curveFn });
+  const pts = traceCurve({
+    pixelAt: img.pixelAt, width: 1200, height: 500,
+    xStart: 100, xEnd: 1100, calib, targetColor: BLACK, tolerance: 60,
+    seed: { px: 600, py: 480 }, // 空白處（離曲線與網格線都遠 > maxJump）
+  });
+  assert.equal(pts.length, 0, '種子不在任何合格 run 附近 → 誠實回空');
+});
+
 test('seed tracing on clean image matches legacy quality (no regression)', () => {
   // 無網格乾淨圖：種子模式品質不應輸給 legacy
   const t = makeTransform(calib);

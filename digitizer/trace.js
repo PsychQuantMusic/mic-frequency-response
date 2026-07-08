@@ -48,19 +48,25 @@ function matchingRuns({ pixelAt, x, height, targetColor, tolerance }) {
  * @param {number} opts.tolerance  顏色距離容差
  * @param {{px:number,py:number}} [opts.seed]  種子點（取色點）。給定時走「連續性追蹤」：
  *   從種子逐欄向兩側走，每欄只取「中心最接近上一欄 y」的 run —— 同色網格線
- *   （水平線離曲線遠、垂直線整欄融成巨大 run）自然被排除（#3）。
+ *   （水平線離曲線遠、垂直線巨型 run 被 maxRunSize 明確拒絕）（#3）。
  *   省略時退回全欄質心（乾淨/合成圖適用；真實網格圖會被污染）。
  * @param {number} [opts.maxJump]  連續性容差 px/欄（預設 12；陡峭曲線可加大）
- * @returns {{freq_hz:number, level_db:number}[]}  頻率遞增；無匹配的欄跳過（誠實 gap）
+ * @param {number} [opts.maxRunSize]  run 高度上限 px（預設 16）。超過視為垂直網格線/
+ *   色塊污染，**明確拒絕**（不能只靠 maxJump 距離——巨型 run 的中心可能恰好落在
+ *   曲線附近；cluster verify HIGH finding）。粗曲線圖可加大。
+ * @returns {{freq_hz:number, level_db:number}[]}  頻率遞增；無匹配的欄跳過（誠實 gap）。
+ *   種子點不在任何合格 run 附近（±maxJump）→ 回空陣列（誠實拒絕，UI 應提示重新取色）。
  */
-export function traceCurve({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance, seed, maxJump = 12 }) {
+export function traceCurve({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance, seed, maxJump = 12, maxRunSize = 16 }) {
   if (seed) {
-    return traceFromSeed({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance, seed, maxJump });
+    return traceFromSeed({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance, seed, maxJump, maxRunSize });
   }
   const t = makeTransform(calib);
-  // 邊界防呆：clamp 到 [0, width-1] 並整數化（decoupled core 不假設 caller 已 clamp）
-  const x0 = Math.max(0, Math.round(xStart ?? 0));
-  const x1 = Math.min(width - 1, Math.round(xEnd ?? width - 1));
+  // 邊界防呆：正規化（xStart > xEnd 時互換）+ clamp 到 [0, width-1] 並整數化
+  const lo = Math.round(Math.min(xStart ?? 0, xEnd ?? width - 1));
+  const hi = Math.round(Math.max(xStart ?? 0, xEnd ?? width - 1));
+  const x0 = Math.max(0, lo);
+  const x1 = Math.min(width - 1, hi);
   const points = [];
 
   for (let x = x0; x <= x1; x++) {
@@ -86,17 +92,23 @@ export function traceCurve({ pixelAt, width, height, xStart, xEnd, calib, target
 }
 
 /** 種子連續性追蹤（#3）：從種子欄向兩側走，每欄取最接近上一欄 y 的 run。 */
-function traceFromSeed({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance, seed, maxJump }) {
+function traceFromSeed({ pixelAt, width, height, xStart, xEnd, calib, targetColor, tolerance, seed, maxJump, maxRunSize }) {
   const t = makeTransform(calib);
-  const x0 = Math.max(0, Math.round(xStart ?? 0));
-  const x1 = Math.min(width - 1, Math.round(xEnd ?? width - 1));
+  const lo = Math.round(Math.min(xStart ?? 0, xEnd ?? width - 1));
+  const hi = Math.round(Math.max(xStart ?? 0, xEnd ?? width - 1));
+  const x0 = Math.max(0, lo);
+  const x1 = Math.min(width - 1, hi);
   const seedX = Math.max(x0, Math.min(x1, Math.round(seed.px)));
 
-  // 種子欄：取「包含或最接近種子 y」的 run 當錨點
-  const seedRuns = matchingRuns({ pixelAt, x: seedX, height, targetColor, tolerance });
+  // 種子欄：只在「合格 run」（非巨型）中取最接近種子 y 者當錨點。
+  // 距離門檻：種子若不在任何合格 run 的 ±maxJump 內（點在網格線/文字/空白處），
+  // 誠實回空 —— 錨定錯誤的 run 會沿錯誤的線追到底。
+  const seedRuns = matchingRuns({ pixelAt, x: seedX, height, targetColor, tolerance })
+    .filter((r) => r.size <= maxRunSize);
   if (seedRuns.length === 0) return [];
   const anchor = seedRuns.reduce((best, r) =>
     Math.abs(r.center - seed.py) < Math.abs(best.center - seed.py) ? r : best);
+  if (Math.abs(anchor.center - seed.py) > maxJump) return [];
 
   const points = [];
   const emit = (x, y) => {
@@ -116,6 +128,7 @@ function traceFromSeed({ pixelAt, width, height, xStart, xEnd, calib, targetColo
       let best = null;
       let bestScore = Infinity;
       for (const r of runs) {
+        if (r.size > maxRunSize) continue; // 巨型 run（垂直網格線/色塊）明確拒絕，不看距離
         const dist = Math.abs(r.center - prevY);
         if (dist > maxJump) continue;
         const score = dist - Math.min(r.size, 6);

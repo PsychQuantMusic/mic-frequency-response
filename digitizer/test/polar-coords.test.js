@@ -44,4 +44,23 @@ test('counter-clockwise chart convention works', () => {
 test('degenerate calibration throws', () => {
   assert.throws(() => makePolarTransform({ ...calib, rings: [{ r: 300, db: 0 }, { r: 300, db: -20 }] }));
   assert.throws(() => makePolarTransform({ ...calib, rings: [{ r: 300, db: 0 }, { r: 60, db: 0 }] }));
+  assert.throws(() => makePolarTransform({ ...calib, rings: [{ r: NaN, db: 0 }, { r: 60, db: -20 }] }));
+  assert.throws(() => makePolarTransform({ ...calib, rings: [{ r: -10, db: 0 }, { r: 60, db: -20 }] }));
+});
+
+test('center point has undefined angle (NaN), not a platform-dependent value', () => {
+  const t = makePolarTransform(calib);
+  const d = t.toData(500, 400); // 正是圓心
+  assert.ok(Number.isNaN(d.angle_deg), `angle 應為 NaN (got ${d.angle_deg})`);
+  assert.ok(Number.isFinite(d.level_db), 'level_db 仍應有值（r=0 外插）');
+});
+
+test('angle wraps correctly at 0/360 boundary', () => {
+  const t = makePolarTransform(calib);
+  for (const ang of [359.5, 0.5, 720 % 360]) {
+    const p = t.toPixel(ang, -5);
+    const d = t.toData(p.px, p.py);
+    const diff = Math.min(Math.abs(d.angle_deg - ang), 360 - Math.abs(d.angle_deg - ang));
+    assert.ok(diff < 1e-6, `wrap 誤差 ${diff} @ ${ang}°`);
+  }
 });

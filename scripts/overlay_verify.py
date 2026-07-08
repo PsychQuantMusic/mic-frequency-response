@@ -23,6 +23,7 @@ import argparse
 import csv
 import json
 import math
+import statistics
 import sys
 
 try:
@@ -140,14 +141,20 @@ def main():
 
     points = []
     with open(args.csv_file, newline="") as f:
-        for row in csv.DictReader(f):
-            points.append((float(row["freq_hz"]), float(row["level_db"])))
+        for i, row in enumerate(csv.DictReader(f), start=2):
+            try:
+                freq, db = float(row["freq_hz"]), float(row["level_db"])
+            except (KeyError, TypeError, ValueError):
+                sys.exit(f"CSV 第 {i} 行格式錯誤（需 freq_hz,level_db 數值）: {row}")
+            if freq <= 0 or not (math.isfinite(freq) and math.isfinite(db)):
+                sys.exit(f"CSV 第 {i} 行不合法（freq 需 >0 且 finite）: {row}")
+            points.append((freq, db))
     if not points:
         sys.exit("CSV 無資料點")
 
     gray = img.convert("L")
     draw = ImageDraw.Draw(img)
-    deviations, gaps = [], []
+    deviations, gaps, ambiguous = [], [], []
 
     for freq, db in points:
         px, py = to_pixel(freq, db)
@@ -161,7 +168,12 @@ def main():
         if found is None:
             gaps.append({"freq_hz": freq, "level_db": db})
             continue
-        run_y, _w = found
+        run_y, run_w = found
+        # run 幾乎吃滿搜尋窗 → 疑似垂直網格線/色塊（中心≈窗中心會給假 0 偏差）。
+        # 排除量化統計、另列 ambiguous 交由 overlay 目檢（cluster verify MEDIUM finding）。
+        if run_w >= 0.9 * (2 * args.window + 1):
+            ambiguous.append({"freq_hz": freq, "level_db": db, "run_width": run_w})
+            continue
         deviations.append({
             "freq_hz": freq, "level_db": db,
             "dev_db": round((run_y - py) * dslope, 3),
@@ -171,12 +183,13 @@ def main():
     img.save(out_path)
 
     abs_devs = sorted(abs(d["dev_db"]) for d in deviations)
-    median = abs_devs[len(abs_devs) // 2] if abs_devs else None
+    median = round(statistics.median(abs_devs), 3) if abs_devs else None
     mx = abs_devs[-1] if abs_devs else None
     outliers = [d for d in deviations if abs(d["dev_db"]) > args.tolerance]
 
     report = {
         "points": len(points), "matched": len(deviations), "gaps": len(gaps),
+        "ambiguous_vertical_runs": ambiguous,
         "median_abs_dev_db": median, "max_abs_dev_db": mx,
         "outliers_over_tolerance": outliers, "tolerance_db": args.tolerance,
         "overlay": out_path,
@@ -185,7 +198,7 @@ def main():
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         print(f"overlay: {out_path}")
-        print(f"points={report['points']} matched={report['matched']} gaps={report['gaps']}")
+        print(f"points={report['points']} matched={report['matched']} gaps={report['gaps']} ambiguous={len(ambiguous)}")
         print(f"median |dev| = {median} dB, max |dev| = {mx} dB")
         if outliers:
             print(f"⚠ {len(outliers)} 點超過 ±{args.tolerance} dB（目檢 overlay 判定真偏差 vs 網格誤匹配）：")

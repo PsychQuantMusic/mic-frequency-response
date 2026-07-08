@@ -14,9 +14,12 @@
 export function makePolarTransform(calib) {
   const { center, rings, zeroAngleScreenDeg, clockwise } = calib;
   const [a, b] = rings;
+  if (![center.px, center.py, a.r, a.db, b.r, b.db, zeroAngleScreenDeg].every(Number.isFinite))
+    throw new Error('calibration values must be finite');
+  if (a.r < 0 || b.r < 0) throw new Error('ring radius must be non-negative');
   if (a.r === b.r) throw new Error('calibration rings share the same radius');
   if (a.db === b.db) throw new Error('calibration rings share the same dB');
-  const slope = (b.db - a.db) / (b.r - a.r); // dB per px（通常負：往圓心 dB 降）
+  const slope = (b.db - a.db) / (b.r - a.r); // dB per px（通常正：半徑越大 dB 越高、往圓心 dB 降）
 
   const toRad = (d) => (d * Math.PI) / 180;
 
@@ -32,6 +35,8 @@ export function makePolarTransform(calib) {
       const dx = px - center.px;
       const dy = py - center.py;
       const r = Math.hypot(dx, dy);
+      // 圓心處角度數學上未定義 → 明確回 NaN（caller 需處理），不回平台相依的偽值
+      if (r < 1e-9) return { angle_deg: NaN, level_db: a.db + (0 - a.r) * slope };
       let screen = (Math.atan2(dx, -dy) * 180) / Math.PI; // 0=上、順時針
       let angle = clockwise ? screen - zeroAngleScreenDeg : zeroAngleScreenDeg - screen;
       angle = ((angle % 360) + 360) % 360;
