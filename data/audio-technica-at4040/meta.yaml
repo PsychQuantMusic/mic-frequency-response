@@ -1,0 +1,48 @@
+brand: Audio-Technica
+model: AT4040
+type: condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://docs.audio-technica.com/us/at4040_submit.pdf
+  page: 2
+  chart: "frequency response: 20-20,000 Hz"
+  legend: "solid = '12\" or more on axis' (typical, digitized here); dashed = 'Roll-off' (80 Hz high-pass engaged, NOT digitized)"
+  scale: "5 dB per division"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi trace（headless CLI）of the SOLID "12\" or more on axis" curve, then
+  --simplify 0.05 dB 感知無損降採樣（110 點）。此圖曲線為藍色（blue centroid RGB
+  97,137,162）、網格為黑色——彩色曲線是最友善情境，用 --target-color 隔離曲線、黑網格
+  天然被排除（非 AT2020 的黑網格黑曲線難例）。原圖含兩條同色藍曲線（solid 典型 +
+  dashed roll-off），僅在 ~20-200 Hz 低頻段分離；為避免 trace 在兩線收斂處誤跳到
+  dashed roll-off，用 --max-jump 6 約束逐欄位移（實測杜絕 90-130 Hz 的偽下沉，見
+  REPORT.md）。plot-area tight crop（400 dpi，offset 1743,3016，585x208）後 trace，
+  杜絕圖外標題/標籤文字 hop。0 dB 錨定：平坦區所在網格線（原圖為相對刻度、無 0 dB
+  標籤，同 AT2020 慣例）。校準以 detect-lines + 實讀軸標籤交叉核驗：3 decades
+  (20-20,000 Hz) @ 190.3 px/decade，decade 線 100 Hz→x1883 / 1k→x2074 / 10k→x2264 /
+  20k→x2321 全部吻合；5 dB/division。曲線特徵落點（平坦 mids、6.5 kHz presence peak、
+  9 kHz dip、~11 kHz 次峰、20 kHz rolloff）與 AT4040 發表特性一致，反證校準無整軸偏移。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response (12\" or more on axis, solid line, as published)"
+verification:
+  method: "overlay vs original chart, interpolated per-column (scripts/overlay_verify.py --interpolated --target-color 97,137,162, #14)"
+  date: 2026-07-09
+  window_px: 12
+  result: >
+    interpolated median |dev| 0.002 dB, max |dev| 1.246 dB over 569 measured columns,
+    zero gaps, zero ambiguous; per-point median |dev| 0.003 dB, max 1.246 dB, 109/110
+    points within +/-1.0 dB.
+  note: >
+    這是「雙同色曲線」圖：solid 典型線與 dashed roll-off 線在 ~20-200 Hz 低頻段共存。
+    overlay 量化用 window 12 px（而非預設 40）以隔離 solid 曲線——預設 ±40px 窗會伸到
+    下方獨立的 dashed roll-off 曲線、汙染指標（該窗下 max 假性升到 2.3 dB）。唯一殘留
+    outlier 在 98.8 Hz（dev -1.246），正是 solid/dashed 兩線收斂合併處（±12px 內兩線
+    真實重疊，不可分辨），非 trace 誤差——高倍目檢 overlay 已確認 trace 全程貼在 solid
+    線上（見 REPORT.md 的 low-freq zoom）。dashed roll-off 曲線未收錄（80 Hz high-pass
+    工程模式、非典型響應）。
+license_note: >
+  數據為事實資料（frequency->dB），從公開官方 datasheet 判讀，非原圖之重製。原圖未收錄。
