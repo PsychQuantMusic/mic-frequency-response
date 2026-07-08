@@ -123,6 +123,22 @@ test('seed far from any run returns empty (off-curve pick refused)', () => {
   assert.equal(pts.length, 0, '種子不在任何合格 run 附近 → 誠實回空');
 });
 
+test('viterbi matches seeded-greedy quality on the same-color grid image (#9 parity)', () => {
+  const img = makeContaminatedImage({ width: 1200, height: 500, curveFn });
+  const t = makeTransform(calib);
+  const seed = {
+    px: Math.round(t.toPixel(500, curveFn(500)).px),
+    py: Math.round(t.toPixel(500, curveFn(500)).py),
+  };
+  const pts = traceCurve({
+    pixelAt: img.pixelAt, width: 1200, height: 500,
+    xStart: 100, xEnd: 1100, calib, targetColor: BLACK, tolerance: 60,
+    seed, strategy: 'viterbi',
+  });
+  assert.ok(pts.length >= 950, `近乎全數還原 (got ${pts.length})`);
+  assert.ok(maxError(pts) < 0.5, `不被同色網格污染 (got ${maxError(pts).toFixed(2)} dB)`);
+});
+
 test('seed tracing on clean image matches legacy quality (no regression)', () => {
   // 無網格乾淨圖：種子模式品質不應輸給 legacy
   const t = makeTransform(calib);

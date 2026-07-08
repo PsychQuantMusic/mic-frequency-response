@@ -120,7 +120,8 @@ $('trace').addEventListener('click', () => {
       pixelAt, width: canvas.width, height: canvas.height,
       xStart, xEnd, calib: transformCalib, targetColor,
       tolerance: parseFloat($('tol').value),
-      seed, // 種子連續性追蹤：同色網格圖也能追（#3）
+      seed, // 種子追蹤：同色網格圖也能追（#3）
+      strategy: 'viterbi', // 全域最優路徑：decoy 分岔/長遮擋也不跟丟（#9）
     });
   } catch (err) {
     setStatus('追蹤失敗：' + err.message); return;
