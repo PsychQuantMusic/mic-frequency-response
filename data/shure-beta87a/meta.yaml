@@ -37,6 +37,12 @@ curves:
       phantom-powered electret condenser). Excludes the DASHED "1 cm (3/8 in.)" close-mic
       proximity-boost curve. Presence rise ~+4.8 dB @ ~9 kHz; HF rolloff to ~-7 dB @ ~19 kHz;
       electronic LF rolloff to ~-13 dB @ 50 Hz.
+  - file: frequency-response--proximity-1cm.csv
+    condition: >
+      close-mic proximity response (DASHED "1 cm / 3/8 in." curve; proximity-effect bass
+      boost, ~+8.1 dB @ ~116 Hz, converging with the far-field curve near ~700 Hz).
+      Digitized 50 Hz .. ~682 Hz where distinct from the solid (#16). Seeded-viterbi trace
+      with the solid decoy masked out; interpolated median 0.016 dB on the dashed span.
 verification:
   method: "overlay_verify.py --interpolated vs cropped official chart (grayscale, black curve)"
   date: 2026-07-09
