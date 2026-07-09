@@ -1,0 +1,47 @@
+brand: Sennheiser
+model: MKH 416
+type: condenser          # RF condenser; short interference-tube (shotgun)
+polar_patterns: [supercardioid, lobar]   # official: "super-cardioid/lobar"
+frequency_range_hz: [40, 20000]
+source:
+  url: https://www.sennheiser.com/globalassets/digizuite/41790-en-sp_1303_v1.0_mkh_416_product_specification_en.pdf
+  page: 2
+  chart: "Frequency Response"
+  scale: "dBV absolute; digitized as relative dB (0 dB = -32 dBV flat-plateau gridline)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  FR 曲線以 seeded-viterbi trace 全解析度數位化並以 --simplify 0.05 dB 感知無損降採樣（90 點）。
+  來源：官方 product-specification PDF（SP_1303 v1.0，p.2「FREQUENCY RESPONSE」）@400dpi，
+  crop 到 plot area。曲線為 Sennheiser 藍（cyan，RGB 0,147,213），與黑色網格不同色，
+  故用 --target-color 0,147,213 精確抽線。
+  校準：X 軸 log，cal-x 用兩條已偵測的十倍頻標籤線（100 Hz @ x=528、10000 Hz @ x=1629，
+  --detect-lines 偵測；用 20/50/200/500/2000/5000/9000/20000 Hz 標籤線覆核，預測 vs 偵測皆 ≤4 px）。
+  Y 軸為絕對 dBV linear，cal-y 錨於兩條標籤主格線（-20 dBV @ y=167、-50 dBV @ y=494，預測 -30/-40/-60
+  線與偵測吻合）。依 Sennheiser/e935 慣例，0 dB 錨定於平坦區所在的 -32 dBV 網格線
+  （實測平坦區約 -31.4 dBV = 曲線騎在 -32 網格線上，該格線因被曲線遮蔽故未被 --detect-lines 偵到，
+  屬強力錨點旁證；plateau 因此呈 +0.6 dB，與 e935 之 +0.7 慣例一致）。
+  特徵交叉核驗：presence 峰落在 ~8.7 kHz（x=1600 → 8850 Hz），與 MKH 416 招牌 presence/HF boost 吻合，
+  確認整軸未偏移。曲線描繪範圍 40–20,000 Hz（cyan x-extent 311→1794 = 40.3→19,940 Hz），與官方頻響範圍一致。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "on-axis (0°, free-field) typical response, relative to flat plateau"
+polar_note: >
+  官方 p.2 有 polar pattern 圖（8 條頻率曲線 125/250/500/1000/2000/4000/8000/16000 Hz 的左右半分圖，
+  0° 在上、外圈 0 dB、5 dB/圈），但同色群組曲線在此密度下無法在 facts-only 標準下可靠逐頻分離，
+  故本批未 digitize polar。FR 已捕捉主要頻譜行為。
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py, --interpolated)"
+  date: 2026-07-09
+  result: >
+    point-wise: 90/90 matched, median |dev| 0.002 dB, max 0.005 dB。
+    interpolated（沿 CSV 內插折線逐欄比對重繪保真度）：1482 measured cols,
+    median 0.017 dB, max 0.05 dB, 0 gaps, 0 ambiguous（彩色曲線，異色網格天然排除）。
+  note: >
+    classic short-shotgun voicing：gentle low rolloff（40 Hz 約 -5 dB rel），flat mid plateau（~0 dB，
+    85 Hz–3 kHz），broad presence/HF boost 於 3 kHz 起爬升至峰值 +4.3 dB @ ~8.7 kHz，
+    其後 HF rolloff 至 20 kHz 約 +0.3 dB rel。CSV 自 40 Hz（曲線清晰起點）起記至 ~20 kHz。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 product specification 判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo。
