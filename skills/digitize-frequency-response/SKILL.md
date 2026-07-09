@@ -65,6 +65,16 @@ triage 小抄：**彩色曲線**（e935 藍、C414/NT1 紅…）是最友善情�
 3. **同色、線型不同（solid vs dashed）** → seed 點在 solid 上，viterbi 連續性天然偏好連續實線、不跳斷線。收斂區（多線靠攏處）若 viterbi 想跳到 decoy → 降 `--max-jump`（6~8）綁住。
 4. **收尾必做**：`Read` overlay.png **放大收斂/分岔區**，肉眼確認綠標記全程在目標線、沒在 fork 處跳到 decoy。overlay 的 interpolated max 在收斂區偶爾衝高（decoy 進了量測窗）是**驗證器假影非 trace 錯**——縮 `--window` 或看 CSV 該處值即可辨別。
 
+##### 虛線 proximity 曲線的特例（#16 batch，最難）
+
+近接效應圖（Shure 3mm/25mm/51mm/2ft、AKG 10cm…）的近距曲線是**虛線**，且下方有一條**連續的 solid far-field 曲線**。viterbi 的暗度獎勵偏好連續 ink → 裸追虛線會**在 dash 間隙塌陷到 solid**（solid 是「獎勵磁鐵」，accumulated-dx 讓大 gap 也能觸及下方 solid），peak 值會系統性偏低。四招（實測有效，由簡到繁）：
+1. **solid-mask**：先用 committed typical.csv 重追 solid、把 solid 路徑 ±8~22px 塗白，再追虛線（虛線成唯一 ink）。**最通用**。
+2. **`--strategy greedy`**（非 viterbi）：greedy 過 dash gap 時凍結 prevY、只在 maxJump 內重連，不會被下方 solid 吸走（D112 實測：viterbi 出錯 +3.98、greedy 正確 +9.96）。
+3. **`--max-jump` 調小**（2~8）：curves 間距 >> dash gap 時，小 maxJump 能橋接同曲線 dash、但擋住跳到鄰線（Beta57A：curves ~52px、dash gap ~18px → mj2）。
+4. **peel isolation**（多虛線家族）：擦掉 solid + 網格 + 鄰線 ±22px 走廊 → 單曲線圖再追（Beta58A 四曲線用此）。
+- **校準的天然 ground-truth**：重追 solid far-field、確認與 committed typical.csv 吻合（median ~0dB）→ 校準正確、非循環。這是 proximity 追法自帶的強交叉驗證。
+- **涵蓋範圍慣例**：proximity CSV 收「圖上實際畫成該虛線的區段」（近距 bass boost，到與 far-field **匯合**為止）；匯合以上圖只畫一條共享線 = far-field typical，不重複收（`condition` 註明匯合頻率 + freq range 自帶在 CSV）。**SM58 沒有 proximity 族**（四曲線家族只有 Beta 58A 有）——遇到「型號其實沒這張圖」誠實 SKIP，別拿別支的圖冒充（facts-only 鐵律）。
+
 **Headless trace 流程**（單曲線真實圖的預設路徑，不需瀏覽器）：
 1. 高解析轉圖（`pdftoppm -r 400`）並 **crop 到 plot area**（只留格線框內）。為什麼：圖外的標題/標籤文字是暗像素，viterbi lookback 在淡描邊 gap 段會跳上去騎文字（#14 實測 AT2020 +14dB 髒點 45 欄）——文字不在畫面裡就沒有 hop 目標。
 2. **校準**：`python3 scripts/overlay_verify.py chart.png --detect-lines` 印網格線候選 → 對軸標籤定 2 個 X 點（已知 Hz）+ 2 個 Y 點（已知 dB）。
