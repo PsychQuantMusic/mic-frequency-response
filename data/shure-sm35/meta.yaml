@@ -29,6 +29,12 @@ method: >
 curves:
   - file: frequency-response--typical.csv
     condition: "typical on-axis response, 0.6 m (2 ft) from sound source (as published, solid curve)"
+  - file: frequency-response--proximity-1cm.csv
+    condition: >
+      close-mic proximity response (DASHED "1 cm" curve; proximity bass boost ~+15 dB plateau
+      130-240 Hz, converging with the far-field 0.6m curve at ~2.4 kHz). Distinct dashed portion
+      as drawn (#16, 100Hz-2.4kHz); above ~2.4kHz the response = the far-field typical. Solid-mask
+      isolation. 0.6m cross-check max 0.041 dB.
 verification:
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14)"
   date: 2026-07-09
