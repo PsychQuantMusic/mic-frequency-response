@@ -1,0 +1,55 @@
+brand: sE Electronics
+model: sE2200
+type: condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://seelectronics.com/wp-content/uploads/2021/11/2200UserManualv1-9-1.pdf
+  page: 4
+  chart: "Frequency response (EN section, p.4) — solid 0-degree on-axis curve"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+variant_note: >
+  CURRENT sE2200 (not the older/discontinued sE2200a or sE2200a II). Confirmed by
+  matching the manual's spec page to the current product page (seelectronics.com/products/se2200/):
+  sensitivity 24 mV/Pa, Max SPL 125/135/145 dB, equivalent noise level 8 dB, capsule
+  "Hand-crafted 1\" True Condenser". Official User Manual v1.9 (2200UserManualv1-9-1.pdf).
+method: >
+  Headless seeded-viterbi trace at 600 dpi, then --simplify 0.05 dB perceptually-lossless
+  downsample (179 points). The FR chart shows the flat 0-degree response (solid red) PLUS
+  the 80/160 Hz low-cut filter curves (dashed, rising from bottom-left); only the FLAT solid
+  0-degree curve was digitized. Curve traced with --target-color 197,38,43 (red), seeded in
+  the clean mid region (chart px 950,308).
+  Calibration by --detect-lines cross-checked against READ axis label centroids (not inferred
+  from log spacing): X-axis log, anchors 200 Hz = px 615 and 10 kHz = px 1718
+  (~649 px/decade); this uniform-log fit matches every labeled gridline from 50 Hz to 20 kHz
+  to within <9 px (<0.014 decade). Y-axis linear, +20 dB = px 10 and -20 dB = px 603
+  (0 dB = px 306, ~14.83 px/dB). best-effort ±0.5 dB.
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis 0-degree response, no low-cut filter, 0 dB pad (as published)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, --target-color 197,38,43)"
+  date: 2026-07-09
+  result: >
+    179 points, matched 179, gaps 0, ambiguous 0. Point-wise median |dev| 0.003 dB, max 1.311 dB.
+    Interpolated (per-column along linear-interp polyline): 1901 measured, median 0.009 dB,
+    max 2.505 dB, 0 gaps, 0 ambiguous. Visual overlay confirms the trace sits on the flat
+    solid 0-degree curve across the whole range (LF rolloff, flat mids, +5.5 dB presence/air
+    peak ~13 kHz, HF rolloff).
+  note: >
+    The max-deviation outliers (~1.3 dB point / ~2.5 dB interpolated) are localized to the
+    ~150-250 Hz columns where the two rising 80/160 Hz low-cut FILTER curves visually merge
+    into the flat 0-degree curve. In those overlapping columns the verifier's per-column
+    nearest-red-pixel occasionally locks onto a low-cut dash pixel rather than the flat curve
+    — a measurement ambiguity from two published curves touching, NOT a digitization error
+    (the CSV values there read ~-0.4 to -0.7 dB, correctly on the flat curve).
+    Leftmost data point reads ~24 Hz (not 20 Hz): the chart's 20 Hz frame does not sit on the
+    otherwise-uniform log grid (the low end is slightly compressed in the drawing), so the
+    uniform-log calibration that fits 50 Hz-20 kHz places the left frame pixel at ~24 Hz. The
+    LF-edge level (-4.65 dB) is faithful; the ~4 Hz label offset is the chart's own drawing
+    inconsistency at the extreme edge.
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 sE Electronics sE2200 User Manual PDF 判讀，
+  非原圖之重製。原圖（PDF/PNG）未收錄進 repo。
