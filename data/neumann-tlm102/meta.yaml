@@ -1,0 +1,46 @@
+brand: Neumann
+model: TLM 102
+type: condenser
+polar_patterns: [cardioid]        # fixed-cardioid large-diaphragm condenser (K102 capsule)
+frequency_range_hz: [20, 20000]   # chart frame spans 20 Hz .. 20 kHz
+source:
+  url: https://www.neumann.com/en-us/products/microphones/tlm-102
+  asset: "https://assets.sennheiser.com/images/assets/Frequency-diagram-TLM-102.svg (official product-page frequency diagram; Neumann is a Sennheiser brand, assets.sennheiser.com is the official CDN. Note the /images/assets/ path differs from the TLM 103 asset's /assets/ path; the plain URL 404s and a versioned suffix .../Frequency-diagram-TLM-102.svg/Zz05ODI1... served the file)"
+  page: "web (product page frequency-response diagram; vector SVG asset, no PDF page)"
+  chart: "Frequency response diagram — TLM 102 (0deg free-field, nominal solid curve)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Source is the OFFICIAL Neumann vector SVG (Frequency-diagram-TLM-102.svg) from the
+  TLM 102 product page. The file encodes the nominal 0deg free-field response as a solid
+  white bezier path (class cls-9); a dashed tolerance envelope (cls-10, two symmetric paths)
+  was NOT digitized. Only the cls-9 stroke color was changed to red (an appended equal-specificity
+  CSS rule so the shared .cls-10,.cls-9 white rule still applies to cls-10) so the raster tracer
+  could isolate it by --target-color (geometry untouched); rendered to PNG at 16x (2597x739)
+  with cairosvg on a white background (the white tolerance band vanishes on white). Calibration
+  anchors were read from the SVG's own grid geometry and confirmed against the RENDERED axis
+  LABELS and via overlay_verify --detect-lines (X: 20/50/100/200/500/1k/2k/5k/10k/20kHz, decade
+  51.045 u, 100 Hz@raw-x=41.46 / 10 kHz@raw-x=143.55, px 662 / 2295 at 16x; Y: labeled majors
+  +10/0/-10/-20 dB, 0 dB@raw-y=19.52, +10 dB@raw-y=9.28 (px 148), -10 dB@raw-y=29.79 (px 476),
+  ~1.0255 u/dB). The cls-9 path carries transform="translate(-3.59 -5.58)" which the renderer
+  bakes in, so curve and grid share one pixel space and grid-based calibration is exact.
+  Seeded-viterbi trace + --simplify 0.05 dB perceptually lossless downsample (43 points). Cross-checked
+  with an INDEPENDENT exact-bezier evaluation of the cls-9 path (flattened 60 samples/segment, same
+  raw-coord calibration): trace-vs-exact-vector median 0.017 / max 0.108 dB over 43 pts (max at the
+  steep 20 kHz tail). Features land where the published TLM 102 character predicts: flat mids,
+  a broad presence lift ~+3.5 dB peaking ~9-10 kHz (Neumann's "slight lift around 10 kHz"), a
+  gentle LF slope to ~-12 dB at 20 Hz, HF rolloff to ~-7.6 dB at 20 kHz.
+curves:
+  - file: frequency-response--typical.csv
+    condition: "0deg free-field on-axis response as published (cardioid; nominal solid curve, excludes dashed tolerance band; presence lift ~+3.5 dB peaking ~9-10 kHz)"
+verification:
+  method: "overlay_verify.py --interpolated vs rendered official chart (--target-color 255,0,0) + independent exact-bezier cross-check"
+  date: 2026-07-09
+  result: >
+    overlay (43 pts): matched 43/43, median |dev| 0.002 dB, max 0.005 dB, 0 gaps, 0 ambiguous.
+    interpolated (2447 measured columns): median 0.01 dB, max 0.049 dB, 0 gaps, 0 ambiguous.
+    independent exact-vector cross-check: median 0.017 dB, max 0.108 dB.
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 Neumann TLM 102 產品頁的頻響圖（vector SVG）判讀，
+  非原圖之重製。原始 SVG／渲染 PNG 未收錄進 repo，僅記來源 URL。
