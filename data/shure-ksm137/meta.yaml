@@ -1,0 +1,54 @@
+brand: Shure
+model: KSM137
+type: condenser          # electret condenser (spec sheet: "Cartridge Type: Electret Condenser")
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://pubs.shure.com/view/guide/KSM137/en-US.pdf
+  page: 9
+  chart: "Typical Frequency Response"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Seeded-viterbi headless trace of the SOLID "60 cm" free-field curve on the
+  official "Typical Frequency Response" chart (p.9), simplified with
+  --simplify 0.05 dB (perceptually-lossless downsampling -> 61 points).
+  Rendered PDF at 600 dpi, cropped to plot area. Calibration read from axis
+  LABELS (not inferred from log spacing): X log 20 Hz..20 kHz (major decade
+  gridlines at 20/200/2k/20k, uniform 456 px/decade @600dpi), Y linear
+  5 dB minor divisions (+20..-20). The chart plots two DISTANCE curves:
+  solid "60 cm" (far-field, flat free-field reference — digitized here) and
+  dashed "15 cm" (close-mic, showing proximity-effect bass boost — NOT
+  digitized). Low-frequency filter at FLAT setting, pad OFF (the low-cut
+  switch curves are a separate chart on p.5 and were not used).
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis free-field response at 60 cm; LF filter FLAT, pad off (as published)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
+  date: 2026-07-09
+  result: >
+    Per-point: 61/61 matched, median |dev| 0.033 dB, max 0.768 dB, zero gaps.
+    Interpolated (repaint fidelity, 1354 measured cols): median 0.018 dB,
+    max 0.768 dB, zero gaps, 10 ambiguous cols (dense vertical gridlines 5k-10k).
+  note: >
+    The max 0.768 dB is a MEASUREMENT artifact, not a trace error, confined
+    entirely to the 200-294 Hz convergence zone where the dashed "15 cm"
+    proximity decoy runs adjacent to (above) the solid "60 cm" curve: the
+    tool's widest-dark-run blends the two curves there. Masking the dashed
+    decoy drops the per-point max to 0.228 dB (within +/-0.3), and the visual
+    overlay confirms the green trace follows the solid curve across the full
+    band (does NOT jump to the dashed decoy at the fork). Multi-curve match
+    ambiguity is a documented skill limitation; visual overlay is the primary
+    judgement.
+switch_note: >
+  The KSM137 has a 3-position low-frequency filter switch (Flat / -6 dB per
+  octave below 115 Hz / -18 dB per octave below 80 Hz) and a 3-position pad
+  (0 / -15 / -25 dB). This dataset is the FLAT filter position, pad off.
+  A separate low-cut filter chart (p.5, 20-1000 Hz, three curves) shows the
+  two low-cut settings; it was not digitized.
+license_note: >
+  Data are factual (frequency->dB) read from the public official chart; not a
+  reproduction of the original artwork. The source PDF/PNG is not included in
+  the repo — only the source URL is cited.
