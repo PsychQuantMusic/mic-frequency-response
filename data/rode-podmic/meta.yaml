@@ -1,0 +1,45 @@
+brand: Rode
+model: PodMic
+type: dynamic
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://edge.rode.com/pdf/page/1869/modules/4579/podmic_datasheet.pdf
+  page: 1
+  chart: "Frequency Response (dB re 1 V/Pa)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  FR 曲線以 seeded-viterbi trace 全解析度數位化（官方 datasheet 單頁，右下角頻響圖，
+  金/橄欖色單曲線 RGB≈175,147,63，--target-color 排除黑色網格與軸標文字），
+  --simplify 0.05 dB 感知無損降採樣（692 → 316 點；曲線含多重 presence 起伏與陡峭
+  HF rolloff，點數較高但重繪保真）。校準用內部主網格線並實讀軸標值（非 log 型態外推）：
+  X 10Hz@px190 / 100Hz@px438 / 1000Hz@px686 / 10000Hz@px933（248 px/decade），
+  1000Hz 由 10/10000 兩點預測 px685.3 與偵測 686 相符（三線交叉核驗一致）；
+  Y 10dB@px167 / 0dB@px202 / -50dB@px374（3.45 px/dB），0dB 由 10/-50 兩點預測
+  px201.5 與偵測 202 相符。曲線實繪自 ~26 Hz（-9.4 dB）起，HF 於 ~16 kHz 觸及 -50 dB
+  圖底（published range 20-20000；圖上未繪 20-26 Hz 段、>16 kHz 段沉入 -50 以下）。
+  特徵交叉核驗（broadcast dynamic voiced for speech）：low-mid warmth bump +5.2 dB @ 147 Hz、
+  presence rise 於 5-9 kHz 區（+6.1 dB @ 5.5 kHz、+7.0 dB @ 9.4 kHz）、tailored LF rolloff
+  （internal pop filter）——全數落在預期位置，校準正確。
+  重繪保真驗證（overlay --interpolated，沿內插折線逐欄比對）：median 0.003 / max 0.053 dB
+  over 691 measured cols，0 gaps、0 ambiguous（--target-color 金，網格天然排除）。
+curves:
+  - file: frequency-response--typical.csv
+    condition: >
+      on-axis (0°) typical response; low-mid warmth bump ~+5.2 dB @ 147 Hz, mid dip ~-4.9 dB @ 408 Hz,
+      small bump ~+2.8 dB @ 900 Hz, presence rise peaking +6.1 dB @ 5.5 kHz and +7.0 dB @ 9.4 kHz,
+      steep HF rolloff (-10 dB by ~12.6 kHz, curve reaches chart floor -50 dB @ ~16 kHz);
+      LF rolloff from ~150 Hz down to -9.4 dB @ 26 Hz (curve drawn start)
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, golden --target-color)"
+  date: 2026-07-09
+  result: >
+    FR (316 pts): point-wise median |dev| 0.003 dB, max 0.005 dB;
+    interpolated 691 cols median 0.003 dB, max 0.053 dB, 0 gaps, 0 ambiguous.
+    全數 ±1.0 dB 內。Feature cross-check: presence peaks land at 5.5 kHz / 9.4 kHz,
+    low-mid bump at 147 Hz — consistent with a broadcast dynamic voiced for speech.
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 Rode datasheet（podmic_datasheet.pdf）判讀，
+  非原圖之重製。原圖（PDF/PNG）未收錄進 repo。
