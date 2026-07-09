@@ -25,6 +25,13 @@ method: >
 curves:
   - file: frequency-response--typical.csv
     condition: "typical on-axis free-field response (solid curve, as published; NOT the dashed 10 cm close-mic curve)"
+  - file: frequency-response--proximity-10cm.csv
+    condition: >
+      close-mic proximity response (DASHED "10 cm" red curve; strong kick-mic proximity
+      bass boost peaking ~+10 dB @ ~104 Hz, converging with the free-field solid ~360 Hz).
+      Digitized 20 Hz .. ~362 Hz where distinct (#16). Same-red-color solid decoy → traced
+      with --strategy greedy (viterbi collapsed onto the solid across dash gaps); tight-window
+      interpolated median 0.005 dB. Free-field cross-check median 0.000 dB.
 verification:
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated --target-color 225,35,42)"
   date: 2026-07-09
