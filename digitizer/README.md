@@ -40,7 +40,7 @@ python3 -m http.server 8000
 
 ```bash
 cd digitizer
-node --test        # coords + trace（含合成圖回歸）+ csv
+node --test        # 引擎：coords + trace（含合成圖回歸）+ csv；資料層：data-schema（格式）+ data-anchors（值回歸，#18）
 ```
 
 ## 已定案的設計決策
