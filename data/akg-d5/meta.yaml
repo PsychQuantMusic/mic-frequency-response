@@ -1,0 +1,43 @@
+brand: AKG
+model: D5
+type: dynamic
+polar_patterns: [supercardioid]
+frequency_range_hz: [70, 20000]
+source:
+  url: https://www.akg.com/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwe58bf499/pdfs/AKG_D5_D5S_Manual.pdf
+  page: 21
+  chart: "6 Specifications — Frequency Response (D5 / D5 S user manual, English section)"
+  retrieved: 2026-07-09
+  note: >
+    官方 D5/D5S 使用手冊（多語 A6 小冊）第 21 頁（英文 "6 Specifications"）的
+    Frequency Response 圖。同一張圖在各語言 specs 頁重複出現（德 p.11、法 p.31…）。
+    注意：AKG 的 D5 (S) Cut Sheet PDF（AKG_CutSheet_D5_S.pdf）只有規格表、無頻響圖；
+    頻響圖僅在此 user manual 內。
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Seeded-viterbi pixel-trace（headless digitizer/cli.js），官方手冊圖 @600 dpi、crop 到
+  plot area。X 軸校準以偵測到的 gridline + 各標籤 leader line 實讀交叉驗證：10 條
+  1-2-5 log 標籤（20/50/100/200/500/1000/2000/5000/10000/20000 Hz）的 gridline 像素
+  完美落在 365.5 px/decade 線性擬合上（殘差 <3 px），並以 D5 已知特徵（4–10 kHz
+  presence 雙峰、~9 kHz 峰、20 kHz HF rolloff、70 Hz 低頻 rolloff）交叉核對——排除
+  log 自相似的整軸偏移風險。Y 軸線性 dB（0 dB / −20 dB gridline 校準，10 dB/70 px）。
+  圖上為 solid（far-field 頻響）+ dashed（下方另一條）雙曲線家族——**只數位化 solid 曲線**。
+  --simplify 0.05 dB 感知無損降採樣（1026 → 362 點）。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis frequency response, solid curve as published (far-field)"
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
+  date: 2026-07-09
+  result: >
+    362 points, matched 362, gaps 0, ambiguous 0 (point-wise);
+    median |dev| 0.003 dB, max |dev| 0.074 dB.
+    interpolated（沿內插折線逐欄）：1026 measured cols, median 0.001 dB, max 0.074 dB,
+    gaps 0, ambiguous 60（垂直黑網格佔滿窗的欄，不可量測；此圖為黑網格+黑曲線）。
+  note: >
+    綠色標記目檢全程貼合 solid 上曲線；dashed 下曲線與網格未被誤觸。曲線特徵：
+    70 Hz −7.5 dB、100 Hz −3.6 dB、mids ~0 dB、presence 雙峰 4–10 kHz（峰 +4.8 dB @≈9 kHz）、
+    20 kHz −14.3 dB。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo。
