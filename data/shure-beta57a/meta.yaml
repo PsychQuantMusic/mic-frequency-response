@@ -35,6 +35,24 @@ method: >
 curves:
   - file: frequency-response--typical.csv
     condition: "typical on-axis response, 0.6 m (2 ft) far-field source distance (as published; solid curve)"
+  - file: frequency-response--proximity-3mm.csv
+    condition: >
+      close-mic proximity response (DASHED "3mm" curve; proximity bass boost peak +12.2dB @ 203Hz,
+      converging with the far-field 0.6m curve at ~1204Hz). Distinct dashed portion as drawn
+      on the chart (#16); above ~1204Hz the response = the far-field typical. Solid-mask +
+      --max-jump 2 isolation. 0.6m cross-check median 0.000 dB.
+  - file: frequency-response--proximity-25mm.csv
+    condition: >
+      close-mic proximity response (DASHED "25mm" curve; proximity bass boost peak +8.0dB @ 170Hz,
+      converging with the far-field 0.6m curve at ~891Hz). Distinct dashed portion as drawn
+      on the chart (#16); above ~891Hz the response = the far-field typical. Solid-mask +
+      --max-jump 2 isolation. 0.6m cross-check median 0.000 dB.
+  - file: frequency-response--proximity-51mm.csv
+    condition: >
+      close-mic proximity response (DASHED "51mm" curve; proximity bass boost peak +4.2dB @ 179Hz,
+      converging with the far-field 0.6m curve at ~712Hz). Distinct dashed portion as drawn
+      on the chart (#16); above ~712Hz the response = the far-field typical. Solid-mask +
+      --max-jump 2 isolation. 0.6m cross-check median 0.000 dB.
 verification:
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, window 10)"
   date: 2026-07-09
