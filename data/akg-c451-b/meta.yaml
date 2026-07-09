@@ -1,0 +1,43 @@
+brand: AKG
+model: C451 B
+type: condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://www.akg.com/on/demandware.static/-/Sites-masterCatalog_Harman/default/dw5a8d3a21/pdfs/AKG_C451B_Manual.pdf
+  page: "PDF p.15 (landscape 2-up spread = printed p.28-29 English 'Technical data'); Frequency response chart on printed p.29"
+  chart: "C451 B Frequency response (Technical data section)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Seeded-viterbi trace of the RED flat on-axis curve, digitized at full resolution
+  (manual rendered @400 dpi via pdftoppm, plot area cropped) and --simplify 0.05 dB
+  perceptually-lossless downsampling (95 points). The chart carries three curves:
+  RED = flat response (no bass-cut filter engaged), GREEN = 75 Hz high-pass filter,
+  BLUE = 150 Hz high-pass filter. Only the RED flat curve was traced, isolated with
+  --target-color 237,28,36 (the green/blue filter curves and the black grid are
+  excluded by color, so the trace never touches them — confirmed in overlay).
+  Switch setting captured: FLAT (highpass = lin / no bass-cut), 0 dB preattenuation
+  pad, 0deg on-axis. 0 dB anchored to the chart's 0 dB line (flat mids read ~0 dB).
+  Calibration read from axis LABEL VALUES (not inferred from log spacing): X anchored
+  on the 100 Hz and 10000 Hz decade gridlines via a least-squares fit over all 29
+  detected vertical gridlines (px/decade 389.9, residual max 6.2 px / rms 2.5 px);
+  Y anchored on the +10 dB and -20 dB gridlines (LS over all 6 horizontal lines,
+  7.56 px/dB). Cross-check: the presence peak lands at ~10 kHz (+3.6 dB above flat
+  mids) — the published bright-SDC signature — confirming the freq axis is not shifted.
+curves:
+  - file: frequency-response--typical.csv
+    condition: "Cardioid on-axis (0deg), FLAT response — no bass-cut filter (lin), 0 dB preattenuation pad. Flat mids ~0 dB; gentle natural bass rolloff below ~200 Hz (-1.7 dB @ 100 Hz, -3.3 @ 50 Hz, -5.1 @ 26 Hz, no filter); presence lift peaking +3.6 dB @ ~10 kHz; HF rolloff to +0.4 dB @ 20 kHz."
+verification:
+  method: "overlay_verify.py --interpolated --target-color 237,28,36 (re-project CSV onto original chart, per-column deviation)"
+  date: 2026-07-09
+  result: >
+    95 pts, 95 matched, 0 gaps, 0 ambiguous. Per-point median |dev| 0.003 dB,
+    max 0.005 dB. Interpolated (1130 measured columns along the CSV polyline):
+    median 0.003 dB, max 0.053 dB, 0 gaps, 0 ambiguous. Visual: green trace markers
+    sit on the RED flat curve across the whole span; the steep 75/150 Hz filter
+    curves were correctly NOT traced.
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 AKG C451 B 使用手冊 PDF 的 Frequency
+  response 圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo。
