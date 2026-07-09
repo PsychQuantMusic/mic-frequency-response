@@ -1,0 +1,37 @@
+brand: Shure
+model: Beta 181/C
+type: condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://pubs.shure.com/view/guide/BETA181/en-US.pdf
+  page: 8
+  chart: "Beta 181/C frequency response (Specifications section)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi trace（headless digitizer/cli.js）+ --simplify 0.05 dB 感知無損降採樣
+  （700 measured cols → 109 points）。校準：X 由官方圖 x-axis 標籤實讀（20/50/100/1000/
+  10000/20000 Hz），並以固定 decade width 交叉核驗——50Hz→px729 與 1000Hz→px1082 定出
+  W≈271 px/decade，回推 20Hz→621、10000Hz→1353、20000Hz→1434 均與 detect-lines 偵測到的
+  網格線吻合（非循環，避免 log 自相似整軸偏移）。Y 由 dB 標籤等距水平線定（+10dB→px3291、
+  -10dB→px3500，52px/5dB）。座標於緊裁 plot-area crop（offset 618,3184）內。
+  best-effort 判讀（平坦段 ±0.1 dB；~15 kHz 陡峭 notch 因近垂直斜率誤差較大）。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response, cardioid capsule (Beta 181/C), as published"
+verification:
+  method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14)"
+  date: 2026-07-09
+  result: >
+    109 points matched, 0 gaps. Interpolated (沿內插折線逐欄): 696 measured cols,
+    median |dev| 0.036 dB, max |dev| 0.525 dB, 0 gaps, 7 ambiguous (垂直網格欄).
+    All points within ±1.0 dB. Max dev 落在 ~14.8 kHz 陡峭 notch（近垂直段，單欄 dB
+    偏差被斜率放大）；overlay 目檢綠標記全程貼合黑曲線。
+  note: >
+    曲線特徵：平坦（1 kHz ≈ +0.3 dB），~70–100 Hz 淺 dip 至 −1 dB，緩升至 presence
+    peak +5.3 dB @ ~9.7 kHz，隨後陡降至 resonant notch −9.6 dB @ ~14.8 kHz，再現
+    共振 wiggle 至 ~20 kHz。官方圖繪製範圍約 50 Hz–20 kHz（published spec 標稱 20–20,000 Hz）。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo，僅記來源 URL。
