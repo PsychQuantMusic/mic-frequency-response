@@ -26,6 +26,24 @@ method: >
 curves:
   - file: frequency-response--typical.csv
     condition: "typical on-axis free-field response — solid '0.06 m (2 ft)' curve as published (multi-distance chart; proximity curves at 3 mm/25 mm/51 mm not digitized)"
+  - file: frequency-response--proximity-3mm.csv
+    condition: >
+      full-band response at 3mm source distance (DASHED "3mm" curve; proximity-effect bass
+      boost +13.6 dB @ 50 Hz decaying to the shared far-field HF above ~1.6 kHz). Distinct LF
+      portion traced per-curve via guide-band isolation; shared HF = the single merged line
+      the chart draws for all distances (#16). Full self-contained response.
+  - file: frequency-response--proximity-25mm.csv
+    condition: >
+      full-band response at 25mm source distance (DASHED "25mm" curve; proximity-effect bass
+      boost +8.2 dB @ 50 Hz decaying to the shared far-field HF above ~1.6 kHz). Distinct LF
+      portion traced per-curve via guide-band isolation; shared HF = the single merged line
+      the chart draws for all distances (#16). Full self-contained response.
+  - file: frequency-response--proximity-51mm.csv
+    condition: >
+      full-band response at 51mm source distance (DASHED "51mm" curve; proximity-effect bass
+      boost +4.9 dB @ 50 Hz decaying to the shared far-field HF above ~1.6 kHz). Distinct LF
+      portion traced per-curve via guide-band isolation; shared HF = the single merged line
+      the chart draws for all distances (#16). Full self-contained response.
 verification:
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
   date: 2026-07-09
