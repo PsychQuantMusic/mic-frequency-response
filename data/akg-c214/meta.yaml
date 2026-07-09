@@ -1,0 +1,48 @@
+brand: AKG
+model: C214
+type: condenser  # 1" large-diaphragm back-electret condenser (single C414-derived capsule)
+polar_patterns: [cardioid]  # fixed cardioid
+frequency_range_hz: [20, 20000]  # published spec (cutsheet: "Frequency Range: 20 to 20,000 Hz")
+source:
+  url: https://www.akg.com/on/demandware.static/-/Sites-masterCatalog_Harman/default/dw6010fca7/pdfs/AKG_C214_Polar_Patterns.pdf
+  page: 1
+  chart: "C 214 Frequency Response + Polar Pattern (official AKG data sheet)"
+  retrieved: 2026-07-09
+  note: >
+    FR chart is NOT in the C214 cut sheet (AKG_CutSheet_C214_072116.pdf) — that page has key
+    specs + a component diagram only. The response curve lives in the separate official AKG
+    "Polar Pattern" data-sheet PDF (linked from the akg.com C214 product page; page is behind
+    DataDome bot protection, but the demandware.static PDF asset is directly retrievable).
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi headless trace of the RED 0deg free-field curve at full resolution, then
+  --simplify 0.05 dB perceptually-lossless downsample (221 points). Colored single-curve case:
+  --target-color 175,39,60 (crimson) with --tolerance 70 excludes both the gray grid and the
+  GREEN 160 Hz low-cut-filter curve (bass-cut NOT digitized — this is the FLAT, no-bass-cut,
+  0 dB pre-att response). Calibration read from axis LABEL VALUES (not log-spacing inference):
+  X log-freq anchored 100 Hz->x814 & 1000 Hz->x1545 (decade = 731 px; independently predicts
+  20 Hz->left border x303 and 20000 Hz->right border x2496, both confirmed against detected
+  gridlines and label leaders for 50/200/500/2000/5000/10000/15000/20000 Hz); Y linear-dB
+  anchored 0 dB->y357 & -10 dB->y498 (14.1 px/dB; cross-checked against detected major
+  gridlines at +20/+10/0/-10/-20/-30 and 2 dB minor gridlines). Trace @400 dpi render of the
+  official PDF (pdftoppm), FR-plot-area crop.
+curves:
+  - file: frequency-response--typical.csv
+    condition: "Cardioid on-axis (0deg free-field) FR, no bass-cut filter, 0 dB pre-att — as published. Gentle LF rolloff (~-8 dB @ 30 Hz), slight low-mid lift (~+1.5 dB @ 100-300 Hz), flat mids, shallow ~1.5 kHz dip (~-1.5 dB), broad HF presence peak (~+4.7 dB @ ~12 kHz), HF rolloff to ~-2.4 dB @ ~20 kHz"
+verification:
+  method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, red target-color)"
+  date: 2026-07-09
+  result: >
+    points=221 matched=221 gaps=0 ambiguous=0; per-point median |dev| 0.034 dB, max 0.323 dB;
+    interpolated (2063 measured cols along the log-f piecewise-linear reconstruction):
+    median 0.017 dB, max 0.323 dB, 0 gaps, 0 ambiguous. All points within +/-1.0 dB.
+    Visual overlay: green trace markers sit on the red curve across LF rolloff, flat mids,
+    ~1.5 kHz dip, ~12 kHz presence peak, and HF rolloff; green bass-cut curve correctly ignored.
+  cross_check: >
+    ~12 kHz presence peak location + magnitude independently corroborated by published third-party
+    review (AudioTechnology: "pronounced 5 dB hump at around 12 kHz") — rules out a whole-axis
+    log shift. Traced curve extent ~30 Hz–19.6 kHz consistent with the printed curve endpoints.
+license_note: >
+  Data is factual (frequency->dB), read from the public official AKG C214 data-sheet chart;
+  not a reproduction of the original artwork. The original PDF/PNG is NOT stored in the repo.
