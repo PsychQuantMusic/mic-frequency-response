@@ -25,6 +25,12 @@ method: >
 curves:
   - file: frequency-response--typical.csv
     condition: "typical on-axis free-field response at 60 cm; LF filter FLAT, pad off (as published)"
+  - file: frequency-response--proximity-15cm.csv
+    condition: >
+      close-mic proximity response (DASHED "15 cm" curve; modest proximity bass boost
+      +3.4 dB @ 50 Hz, converging with the far-field 60 cm curve near ~250 Hz).
+      Digitized 50 Hz .. ~238 Hz where distinct from the solid (#16); seeded-viterbi
+      with the solid decoy masked out. interpolated median 0.021 dB on the dashed span.
 verification:
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
   date: 2026-07-09
