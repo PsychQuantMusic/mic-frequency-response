@@ -1,0 +1,51 @@
+brand: Audio-Technica
+model: AT2035
+type: condenser
+polar_patterns: [cardioid]
+frequency_range_hz: [20, 20000]
+source:
+  url: https://docs.audio-technica.com/us/at2035_submit.pdf
+  page: 2
+  chart: "frequency response: 20-20,000 Hz"
+  legend: "solid = '12\" or more on axis' (typical, digitized here); dashed = 'Roll-off' (integral 80 Hz high-pass engaged, NOT digitized)"
+  scale: "5 dB per division (on-chart '10 dB' marker spans 2 divisions)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  seeded-viterbi trace（headless CLI）of the SOLID "12\" or more on axis" curve, then
+  --simplify 0.05 dB 感知無損降採樣（88 點）。此圖曲線為藍色（blue centroid RGB
+  96,137,162，與同廠 AT4040 同一 house style）、網格為黑色——彩色曲線是最友善情境，
+  用 --target-color 隔離曲線、黑網格天然被排除（非 AT2020 的黑網格黑曲線難例）。
+  原圖含兩條同色藍曲線（solid 典型 + dashed 80 Hz roll-off）；roll-off 在低頻（20-~250 Hz）
+  位於 solid 下方、於 ~200-300 Hz 收斂。為避免 trace 在收斂區誤跳到 dashed roll-off，
+  用 --max-jump 6 約束逐欄位移（實測 trace 全程貼在 solid 上、低頻未下沉，見 REPORT.md
+  的 low-freq zoom overlay）。plot-area tight crop（400 dpi，offset 1745,3085，600x210）
+  後 trace，杜絕圖外標題「frequency response: 20-20,000 Hz」/軸標籤文字 hop。
+  0 dB 錨定：平坦區所在網格線（原圖為相對刻度、無 0 dB 標籤，同 AT2020/AT4040 慣例）——
+  mids 平台約落在該線上（-0.26~0 dB）。校準以 detect-lines + 實讀軸標籤交叉核驗：
+  X 軸 3 decades (20-20,000 Hz) @ 190.3 px/decade，9 條標籤線 50→x87 / 100→x144 /
+  200→x201 / 500→x277 / 1k→x334 / 2k→x392 / 5k→x467 / 10k→x525 / 20k→x582(右框) 全部
+  吻合偵測值（非循環：每個標籤值皆對得上 detect-lines，且 decade 寬度一致）；Y 軸水平線
+  在 crop-y [10,49,88,127,165,204]（39 px 等距 = 5 dB/division）。曲線特徵落點（平坦 mids、
+  ~12.5 kHz presence peak +1.5 dB、HF rolloff、輕微低頻下沉）與 AT2035 發表特性一致，
+  反證校準無整軸偏移。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "typical on-axis response (12\" or more on axis, solid line, as published)"
+verification:
+  method: "overlay vs original chart, interpolated per-column (scripts/overlay_verify.py --interpolated --target-color 96,137,162, #14)"
+  date: 2026-07-09
+  window_px: 10
+  result: >
+    interpolated median |dev| 0.004 dB, max |dev| 0.048 dB over 569 measured columns,
+    zero gaps, zero ambiguous; per-point median |dev| 0.004 dB, max |dev| 0.005 dB,
+    88/88 points within +/-1.0 dB.
+  note: >
+    彩色（藍）曲線 + 黑網格是最乾淨情境：--target-color 天然排除黑網格 → ambiguous=0
+    （不同於 AT2020 黑網格黑曲線有數十 ambiguous 欄）。overlay 量化用 window 10 px
+    以隔離 solid 曲線——低頻的 dashed roll-off 位於 solid 下方 ~80 px（>>10 px 窗），
+    不進量測窗、不汙染指標。dashed roll-off 曲線未收錄（80 Hz high-pass 工程模式、
+    非典型響應）。
+license_note: >
+  數據為事實資料（frequency->dB），從公開官方 datasheet 判讀，非原圖之重製。原圖未收錄。
