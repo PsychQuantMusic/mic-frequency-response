@@ -1,0 +1,51 @@
+brand: Sennheiser
+model: e845
+type: dynamic
+polar_patterns: [supercardioid]
+frequency_range_hz: [40, 16000]
+source:
+  url: https://www.sennheiser.com/globalassets/digizuite/41680-en-sp_1210_v1.0_e_845_e_845-s_product_specification_en.pdf
+  page: 2
+  chart: "Frequency Response (0°, 1 m)"
+  scale: "dBV absolute; digitized as relative dB (0 dB = -50 dBV gridline, same anchor as e935/e904/e835)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Headless seeded-viterbi trace（單曲線真實圖）。官方 evolution wired product-specification（SP_1210 V1.0）
+  FR 圖（p.2）為藍色曲線（cyan，RGB 0,146,212），與黑色網格不同色，故用 --target-color 0,146,212 精確抽線。
+  校準以 detect-lines 找網格線 + 逐一實讀軸標籤值（非依 log 間距推測——SKILL #14 warns log 自相似整軸偏移）：
+  X 軸 log Hz，實讀 9 個標籤（50/100/200/500/1k/2k/5k/10k/20k）全部對上偵測到的垂直網格線（generous-crop 座標
+  50@187 / 100@309 / 200@431 / 500@593 / 1k@715 / 2k@837 / 5k@999 / 10k@1121 / 20k@1244），decade 寬約 406 px
+  一致、box 左緣 ~40Hz；此 decade 寬與同廠 e835（~404.5）、e904（~409.5）吻合，確認無整軸偏移。
+  Y 軸 dBV 線性（-40…-90，每格 10 dB，偵測到 6 條水平線 y=103/184/265/346/428/508，~8.13 px/dB）。
+  錨定 0 dB = -50 dBV 網格線（與 e935/e904/e835 同慣例，同廠同軸，便於跨麥比較）；中頻平台（200-700Hz）
+  落在 ~-5.6 dB relative（即 ~-55.6 dBV）、presence 尖峰在 ~4.3kHz 達 +0.25 dB（觸及 -50 dBV 線，約 +5.8 dB
+  高於中頻平台）。trace 於 cropped plot area（1115x421，已裁掉底部 "0°,1m" 圖例的 cyan 線段避免污染）上
+  以 --cal-x 169,100 981,10000 --cal-y 89,0 333,-30 --seed 620,123 --x-range 4,1105 執行，
+  --simplify 0.05 dB 感知無損降採樣（162 點）。best-effort ±0.5 dB。
+curves:
+  - file: frequency-response--typical.csv
+    condition: "on-axis (0°, 1 m) typical response, relative to -50 dBV gridline (0 dB)"
+polar_note: >
+  官方 p.2 有發表 polar pattern，為「8 條彩色曲線的左右半分圖」：左半（cyan）125/250/500/1000 Hz、
+  右半（purple）2000/4000/8000/16000 Hz，0° 在上（Sennheiser 慣例）、外圈 0dB、5dB/圈（0-25 dB 刻度）。
+  同色群組曲線在前方近乎重合、以難分辨的虛線樣式交疊；此密度下無法在 facts-only 標準下可靠地
+  逐頻分離判讀，故本批**未** digitize polar 各曲線（誠實跳過優於輸出不可靠數據）。FR 已捕捉主要頻譜行為。
+verification:
+  method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14)"
+  date: 2026-07-09
+  result: >
+    重繪保真驗證（沿內插折線逐欄比對）：median 0.003 / max 0.053 dB over 1101 measured cols
+    （0 ambiguous、零 gap，--target-color 藍曲線）。逐點 162/162 matched，median |dev| 0.002 /
+    max 0.005 dB，全數在 ±1.0 dB 內。
+  note: >
+    e845 為 supercardioid lead-vocal 動圈麥聲底（presence boost 比 e835 更前推）：低頻自 ~40Hz 邊界起
+    rolloff（40Hz ≈ -11.6 dB relative，補償近接效應；50Hz -9.9dB、100Hz -7.0dB）；漸升至中頻平台
+    ~-5.6 dB（200-700Hz）；自中頻起寬廣 presence lift，於 ~4.3kHz 達尖峰 +0.25 dB（招牌 presence，
+    約 +5.8 dB 高於中頻平台、觸及 -50 dBV 線）；4-5kHz 頂部平坦（~0 dB）後回落至 ~-1.8~-2.4 dB
+    的高頻平台/ledge（7-15kHz）；~15kHz 後高頻陡降（16kHz -6.2dB、18kHz -9.7dB、~20kHz -12.4dB）。
+    曲線自左邊界 ~40Hz 起、繪至 ~20kHz。frequency_range_hz 依官方規格 40-16000。
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 product specification 判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo。
