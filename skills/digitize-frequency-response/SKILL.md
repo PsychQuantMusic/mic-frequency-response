@@ -79,7 +79,7 @@ triage 小抄：**彩色曲線**（e935 藍、C414/NT1 紅…）是最友善情�
    ```
    實例（SM58 官方圖 @400dpi）：`--cal-x 405,100 1244,10000 --cal-y 141,10 469,-10 --seed 820,313 --x-range 150,1372 --max-jump 14`。
 4. **`--simplify 0.05` 感知無損降採樣**（#14——取代舊的固定 1/3 八度重取樣）。判準不是點數而是「重繪誤差 ≤ 容差」：密度由曲線複雜度自動決定（平坦段極稀、notch/peak 密）。固定頻率格是 AI 判讀時代「人工讀點貴」的遺產，trace 之後每點免費，別再主動丟密度——資料庫的承諾是**畫回去與原圖一模一樣**。x-range 用 published `frequency_range_hz` 換算 px 定界（圖緣外的 1px 碎片不撿）。
-5. **Overlay 驗證（強制，加 `--interpolated`）**——除逐點比對外，沿 CSV 內插折線**逐欄**量偏差（重繪保真度的真正驗證；稀疏資料「點上過檻、點間失真」的漏洞由此補上）。過檻參考：interpolated median ≲0.05 dB、max ≲0.3 dB、零 gap（#14 六支實測 median 0.003–0.017）；`ambiguous` 欄數（垂直網格佔滿窗、不可量測）要一併記錄——黑網格圖幾十欄正常、彩色圖應為 0。把 interpolated 統計記進 meta 的 `verification`。淡描邊高 dpi 圖可加 `--dark-threshold 150`。
+5. **Overlay 驗證（強制，加 `--interpolated`）**——除逐點比對外，沿 CSV 內插折線**逐欄**量偏差（重繪保真度的真正驗證；稀疏資料「點上過檻、點間失真」的漏洞由此補上）。過檻參考：interpolated median ≲0.05 dB、max ≲0.3 dB、零 gap（#14 六支實測 median 0.003–0.017）；`ambiguous` 欄數（垂直網格佔滿窗、不可量測）要一併記錄——黑網格圖幾十欄正常、彩色圖應為 0。把 interpolated 統計記進 meta 的 `verification`。淡描邊高 dpi 圖可加 `--dark-threshold 150`。**綠色曲線**（Lewitt 等）要用 `--marker-color <對比色>`（如紅），否則 overlay 綠標記與綠曲線撞色、目視無法分離——此時改看 interpolated 數字（對原圖像素獨立取樣算的，是視覺檢查的量化版）。**若 CSV 由自訂 pipeline（非 cli.js）產出，確認行尾是 LF 不是 CRLF**——data-schema 測試會抓 header 的 `\r`（MD441-U 踩過）。
 
 **AI 判讀步驟**（多曲線圖的路徑；單曲線圖 trace 失敗時的 fallback）：
 1. 讀懂座標系：X 軸 log（找 `20 / 50 / 100 / 1000 / 10000` 等標籤定範圍與方向）、Y 軸 linear dB（找 `0` 線與刻度間距）。高解析 crop + 放大看能大幅提升精度。
