@@ -21,8 +21,14 @@ description: >
 
 ### 1. 取得頻響圖
 
-- **使用者給型號**（如 "Shure SM58"）→ 找官方來源。優先順序：官方 spec sheet / user-guide **PDF**（常在 `pubs.<brand>.com` 或官網 spec 頁）> 官網產品頁的頻響圖。用 `WebSearch`（限定 `allowed_domains` 到官方網域）找來源，`curl -sL -A "Mozilla/5.0"` 下載 PDF，`pdftoppm -r 300 -png` 轉頁，找頻響圖那一頁（通常在 Specifications 段）。高解析 crop 出圖表區（`pdftoppm ... -x -y -W -H`）以便精確判讀。
+- **使用者給型號**（如 "Shure SM58"）→ 找官方來源。優先順序：**官方向量 SVG**（最權威，見下）> 官方 spec sheet / user-guide **PDF**（常在 `pubs.<brand>.com` 或官網 spec 頁）> 官網產品頁的頻響圖。用 `WebSearch`（限定 `allowed_domains` 到官方網域）找來源，`curl -sL -A "Mozilla/5.0"` 下載 PDF，`pdftoppm -r 400 -png` 轉頁，找頻響圖那一頁（通常在 Specifications 段）。高解析 crop 出圖表區。
 - **使用者直接給圖**（URL / PDF / 截圖）→ 直接用。
+
+**來源取得技巧（#15 batch 累積）**：
+- **官方向量 SVG（Neumann/Sennheiser 產品頁）**：`assets.sennheiser.com/assets/Frequency-diagram-<MODEL>.svg`（TLM103/KM184/U87 都有）。向量 = 廠商精確 bezier，比點陣更權威。作法：找出目標曲線的 path（如 `cls-9` 實線，`cls-10` 是 dashed 容差帶不取），**只把那條 path 重上色**（geometry 不動）→ cairosvg 渲染成 PNG（macOS 需 `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`）→ `--target-color` trace；**可再解析 bezier path 直接算一次做雙路交叉驗證**（兩路一致 = 強完整性保證）。
+- **廠商 CDN / URL 會遷移**：Audix 已搬到 Shopify（`audixusa.com/cdn/shop/files/<MODEL>_V3_*.pdf`）；Sennheiser 在 `assets.sennheiser.com/.../product_specification_*.pdf` 或 `docs.cloud.sennheiser.com`；EV 用 `products.electrovoice.com/binary/...` 或 `downloadfile.php?id=`。舊連結 404 是常態，找現行產品頁的下載連結。
+- **cutsheet 未必有 FR 圖**：AKG C214/D5 的 cutsheet 只有 spec 表，FR 曲線在**另一份**（C214 在 "Polar_Patterns" PDF、D5 在 user manual p.21）。找不到就翻同型號的其他官方文件。
+- **DataDome / captcha 擋 curl**（akg.com）：`demandware.static` 的 PDF 資產本身可直接 curl，但要先拿到 URL。用 `~/bin/safari-browser`（原生 Safari 過 captcha）：`safari-browser open <產品頁>` → `safari-browser snapshot -i` 讀下載 href → 取得直連再 curl。
 
 > **版權鐵律**：原圖（PDF/PNG/截圖）只暫存在 job scratch 或 repo 外，**絕不 commit**。數據（freq→dB）是不受著作權保護的 facts；原圖是廠商的創作。`meta.yaml` 只記來源 URL。
 
@@ -33,10 +39,31 @@ description: >
 | 圖的類型 | 方法 | 為什麼 |
 |----------|------|--------|
 | **單曲線真實圖**（含同色網格也行）| **seeded trace 優先**（`strategy: viterbi`，headless CLI 見下）| #3 的種子連續性 + #9 的 Viterbi 全域最優已解掉同色網格污染（decoy 分岔、遮擋、網格相切、粗網格線都有防禦與測試）。真實 SM58 官方圖實測：30/30 對照點、max 0.77dB。**可重現、免判讀誤差**——比 AI 判讀更該信。 |
-| **多曲線真實圖**（線型區分的 multi-condition，如 SM7B）| **AI 視覺判讀** | trace 無線型辨識（identity 需 Level-2 學出的先驗——見 curve-extraction-priors 筆記），沿 LEGEND 線型逐條判讀仍是唯一路徑。 |
+| **多曲線真實圖**（proximity family、presence/low-cut switch、dual-voicing…）| **多數仍 seeded trace**（見下「多曲線圖處置」）| 只要**目標曲線可由顏色或連續性從其他曲線分離**，trace 就能追對它——實測 30+ 支多曲線圖（Shure proximity 4 曲線、e906 三色 presence switch、RE320 dual-voicing、SM81/KSM137 low-cut）全部 trace 成功。**真正需要 AI 判讀的只剩「同線型同色、只能靠 LEGEND 標籤區分」的極少數**（identity 需 Level-2 先驗——見 curve-extraction-priors 筆記）。 |
 | **乾淨 / 合成圖** | pixel-trace（greedy 或 viterbi 皆可）| 快、準，回歸測試守著。 |
 
 triage 小抄：**彩色曲線**（e935 藍、C414/NT1 紅…）是最友善情境——顏色是最強的曲線/網格區分特徵：trace 用 `--target-color R,G,B`（CLI）、量化用 `overlay_verify.py --target-color`（#13），異色網格天然被排除。**灰網格 + 黑曲線**（Shure 慣例）次之（暗度閾值排除網格）；**黑網格 + 黑曲線**（Audio-Technica 慣例）最難——trace 靠 viterbi 防禦、量化歧義較高。
+
+#### 多曲線圖處置（#15 batch 累積，30+ 支實戰）
+
+一張圖常有多條曲線。**先決定「哪一條是 typical」，再想「怎麼只追到它」。**
+
+**取哪一條（canonical typical 慣例）**：
+| 圖型 | 曲線 | 取哪條 |
+|------|------|--------|
+| proximity family（Shure：3mm/25mm/51mm/2ft 依距離）| 近距離 = bass boost | **最遠場那條**（2ft / 60cm 的 solid）——published on-axis typical |
+| presence switch（e906：bright/moderate/dark）| 3 條 | **moderate/中間 linear** 那條 |
+| dual-voicing（RE320：vocal vs kick）| 2 條或**兩張分開的圖** | **general/flat（position 1）**；RE320 是上下兩張圖不是同圖兩線，別看錯 |
+| low-cut/bass switch（SM81/KSM137/MD421/C451）| flat + rolloff/cutoff | **flat（無 low-cut、pad off、bass=M）** |
+| tolerance band（TLM103/KM184 SVG）| 實線 + dashed ±容差帶 | **nominal 實線**（`cls-9`），dashed 不取 |
+| off-axis（AKG D5：0° + 25°）| solid + dashed | **0° on-axis solid** |
+`condition` 欄要**明記選了哪條**（例 `"...solid 2ft far-field"` / `"presence switch moderate"` / `"general/flat voicing"`）。
+
+**怎麼只追到它（隔離手段，由易到難）**：
+1. **異色** → `--target-color R,G,B`（最乾淨；decoy 天然排除）。
+2. **同色但目標與 decoy 色距可分**（e906 三條藍深淺不同）→ `--target-color` + 調 `--tolerance`（實測 40 能隔開中間 cyan、排除 bright dist 48.8/dark dist 180；調太寬會漏進鄰線）。
+3. **同色、線型不同（solid vs dashed）** → seed 點在 solid 上，viterbi 連續性天然偏好連續實線、不跳斷線。收斂區（多線靠攏處）若 viterbi 想跳到 decoy → 降 `--max-jump`（6~8）綁住。
+4. **收尾必做**：`Read` overlay.png **放大收斂/分岔區**，肉眼確認綠標記全程在目標線、沒在 fork 處跳到 decoy。overlay 的 interpolated max 在收斂區偶爾衝高（decoy 進了量測窗）是**驗證器假影非 trace 錯**——縮 `--window` 或看 CSV 該處值即可辨別。
 
 **Headless trace 流程**（單曲線真實圖的預設路徑，不需瀏覽器）：
 1. 高解析轉圖（`pdftoppm -r 400`）並 **crop 到 plot area**（只留格線框內）。為什麼：圖外的標題/標籤文字是暗像素，viterbi lookback 在淡描邊 gap 段會跳上去騎文字（#14 實測 AT2020 +14dB 髒點 45 欄）——文字不在畫面裡就沒有 hop 目標。
