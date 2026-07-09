@@ -1,0 +1,66 @@
+brand: Sennheiser
+model: MD 441-U
+type: dynamic
+polar_patterns: [supercardioid]
+frequency_range_hz: [30, 20000]
+source:
+  url: https://www.sennheiser.com/globalassets/digizuite/41239-en-quick_guide_md_441-u_11_2022.pdf
+  page: 2
+  chart: "Frequency Response — 'Treble boost switch' chart (top-right, p.2); solid line = brilliance OFF reference"
+  scale: "dBV absolute (axis -40..-90 dBV, majors 10 dB, minors 2 dB); digitized as relative dB (0 dB = -55.17 dBV measured flat plateau, median of 200-2000 Hz)"
+  retrieved: 2026-07-09
+digitized_by: che (via Claude)
+digitized_on: 2026-07-09
+method: >
+  Headless seeded-viterbi trace. The published FR chart overlays TWO same-color (cyan)
+  curves — a continuous SOLID line (brilliance switch OFF = linear/flat reference) and a
+  DASHED "Treble boost" line (brilliance ON, decoy). A direct viterbi trace sawtoothed
+  between them (both cyan, ~3 dB / ~26 px apart; the dashed's thick dash-blobs lure the
+  path via width-bonus + gap-spread). Isolation: threshold cyan pixels → box-dilate
+  (H±4, V±3 px) → connected components → keep the single component spanning the full width
+  (the continuous SOLID line; the dashed line fragments into ~130-px dash components that
+  never join it, since it is ≥11 px away vertically) → per-column keep the segment nearest
+  the smooth local trend (removes a small dashed remnant at the ~3 kHz crossover) → render
+  a clean solid-only image → dump_pixels + digitizer/cli.js viterbi, --simplify 0.05
+  (1204 cols → 160 pts). Calibration READ from axis labels, NOT inferred from log spacing:
+  the thick major vertical gridlines were profiled and matched to the 1-2-5 label sequence
+  by their wide/narrow gap pattern (0.398-decade gaps land exactly at 20→50, 200→500,
+  2000→5000; 0.301-decade gaps elsewhere), which non-circularly pins the Hz assignment;
+  Y anchored to the labeled -40/-90 dBV major gridlines. cal-x 124px=10Hz, 1596px=20000Hz;
+  cal-y 78px=-40dBV, 518px=-90dBV.
+curves:
+  - file: frequency-response--typical.csv
+    condition: >
+      on-axis, linear/flat reference setting: brilliance (treble-boost) switch OFF +
+      bass roll-off switch = M (music, full/flattest bass). Relative to flat plateau
+      (0 dB = -55.17 dBV). NOT the treble-boost curve and NOT any speech-rolloff (1/2/3/S)
+      bass setting.
+switch_note: >
+  The MD 441-U has two tone switches: a 5-position bass roll-off filter (M = music /
+  full bass ↔ 1 ↔ 2 ↔ 3 ↔ S = speech / max low-cut) and a 2-position brilliance
+  (treble-boost) switch. p.2 publishes three FR charts: (a) "Treble boost switch"
+  (solid = OFF reference vs dashed = boost) — SOURCE of this digitization (solid line);
+  (b) "Roll-off filter" (5 cyan curves M*/1/2/3/S* — flattest is M*, the same reference
+  as the solid line here); (c) the on-axis FR beside the polar plot. Only the flat
+  reference (brilliance OFF, bass M) is captured here.
+verification:
+  method: "overlay vs original chart (scripts/overlay_verify.py --interpolated)"
+  date: 2026-07-09
+  result: >
+    vs original chart (both curves present, --window 10): interpolated median 0.003 /
+    max 0.901 dB over 1203 measured cols, 0 ambiguous, 3 gaps; all 160 points within
+    ±1.0 dB. The 0.9 dB max is a verifier artifact where the dashed "treble boost" decoy
+    passes within the scan window near the ~3 kHz crossover, NOT a trace error.
+    vs the connected-component-isolated solid line (decoy removed): interpolated
+    median 0.003 / max 0.051 dB (redraw fidelity at the --simplify tolerance).
+  note: >
+    Flat/linear reference: gentle bass roll-off below ~70 Hz (-6.3 dB at 39.5 Hz),
+    flat plateau 70 Hz-2 kHz (0 dB), modest presence bumps 3-8 kHz (peak +0.45 dB),
+    HF roll-off to -6.9 dB at 20 kHz. The pronounced treble/presence character the
+    MD 441-U is famous for comes from the treble-boost switch (dashed curve), which is
+    intentionally NOT captured in this flat-reference digitization. CSV starts at
+    39.5 Hz (chart curve start; the plotted curve does not extend below ~39 Hz even
+    though the spec quotes 30 Hz).
+license_note: >
+  數據為事實資料（frequency→dB），從公開官方 Quick Guide 判讀，非原圖之重製。
+  原圖（PDF/PNG）未收錄進 repo。
