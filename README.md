@@ -18,7 +18,7 @@ PsychQuantMusic/mic-frequency-response   （本 repo）
 
 「阿澈的音樂筆記」網站（PsychQuantMusic/music-note，已上線，刻意分開）
 └── 建置時讀本 repo 的 CSV → 渲染互動圖表
-    🌐 https://psychquantmusic.github.io/music-note/
+    🌐 https://music-note-psych-quant.vercel.app/
 ```
 
 **設計原則**：CSV 是穩定的 contract，工具（網頁 / Swift）可以換，資料不動。
