@@ -16,8 +16,9 @@ PsychQuantMusic/mic-frequency-response   （本 repo）
 ├── digitizer/       ← 網頁描點工具（半自動像素追蹤 + 手動修正）
 └── (未來) Swift 完整版 app
 
-「阿澈的音樂筆記」網站                     （另一個 repo，未來，分開）
+「阿澈的音樂筆記」網站（PsychQuantMusic/music-note，已上線，刻意分開）
 └── 建置時讀本 repo 的 CSV → 渲染互動圖表
+    🌐 https://psychquantmusic.github.io/music-note/
 ```
 
 **設計原則**：CSV 是穩定的 contract，工具（網頁 / Swift）可以換，資料不動。
