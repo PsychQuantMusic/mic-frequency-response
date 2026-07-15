@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -12,6 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import source_assets as source_assets_cli
 import source_assets_lib.storage as storage_module
 import source_assets_lib.network as network_module
 from source_assets_lib.network import (
@@ -1016,7 +1018,158 @@ class LifecycleCommandTests(unittest.TestCase):
 
 
 class CLITests(unittest.TestCase):
-    pass
+    def test_cli_requires_exactly_one_selector_and_bootstrap_accept_new(self):
+        observed = []
+        cases = (
+            ["verify"],
+            ["verify", "--all", "--mic", "shure-sm58"],
+            ["bootstrap", "--all"],
+        )
+        for argv in cases:
+            with redirect_stderr(io.StringIO()):
+                try:
+                    source_assets_cli.main(argv)
+                except SystemExit as error:
+                    observed.append(error.code)
+                else:
+                    observed.append(None)
+
+        self.assertEqual(observed, [2, 2, 2])
+
+    def test_cli_rejects_invalid_mic_slug_as_an_argument_error(self):
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            try:
+                source_assets_cli.main(["verify", "--mic", "../outside"])
+            except SystemExit as error:
+                observed = error.code
+            except SourceAssetError as error:
+                observed = type(error).__name__
+            else:
+                observed = None
+
+        self.assertEqual(observed, 2)
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_cli_prints_exact_summary_and_propagates_verify_exit_code(self):
+        with tempfile.TemporaryDirectory() as td:
+            _make_available_svg_repo(td, present=True)
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with (
+                patch.object(source_assets_cli, "REPOSITORY_ROOT", Path(td), create=True),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = source_assets_cli.main(["verify", "--all"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout.getvalue(), "available=1 unavailable=0 failed=0\n")
+            self.assertEqual(stderr.getvalue(), "")
+
+    def test_cli_prints_exact_no_manifest_error_only_to_stderr(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = Path(td) / "config"
+            config.mkdir()
+            (config / "source-hosts.json").write_text(
+                json.dumps({"schema_version": 1, "hosts": ["pubs.shure.com"]}),
+                encoding="utf-8",
+            )
+            (config / "source-url-redactions.json").write_text(
+                json.dumps({"schema_version": 1, "entries": []}),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with (
+                patch.object(source_assets_cli, "REPOSITORY_ROOT", Path(td)),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = source_assets_cli.main(["verify", "--all"])
+
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(
+                stderr.getvalue(),
+                "找不到 source-manifest.json；請先執行來源 manifest 遷移\n",
+            )
+
+    def test_cli_wires_production_context_for_bootstrap_and_fetch(self):
+        observed = []
+        for argv in (
+            ["bootstrap", "--all", "--accept-new"],
+            ["fetch", "--all"],
+        ):
+            with self.subTest(command=argv[0]), tempfile.TemporaryDirectory() as td:
+                _make_available_svg_repo(td, present=True)
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with (
+                    patch.object(source_assets_cli, "REPOSITORY_ROOT", Path(td)),
+                    redirect_stdout(stdout),
+                    redirect_stderr(stderr),
+                ):
+                    exit_code = source_assets_cli.main(argv)
+                observed.append((exit_code, stdout.getvalue(), stderr.getvalue()))
+
+        self.assertEqual(
+            observed,
+            [(0, "available=1 unavailable=0 failed=0\n", "")] * 2,
+        )
+
+    def test_cli_never_prints_signed_credential_values(self):
+        secret = "do-not-print-this-token"
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            document["artifacts"][0]["source_url"] += f"?token={secret}"
+            manifest.write_text(json.dumps(document), encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch.object(source_assets_cli, "REPOSITORY_ROOT", Path(td)),
+                patch.object(
+                    network_module.socket,
+                    "getaddrinfo",
+                    side_effect=AssertionError("signed URL 不得進行 DNS"),
+                ),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = source_assets_cli.main(
+                    ["bootstrap", "--all", "--accept-new"]
+                )
+
+            combined = stdout.getvalue() + stderr.getvalue()
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(stdout.getvalue(), "available=0 unavailable=0 failed=1\n")
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertNotIn(secret, combined)
+
+    def test_cli_propagates_integrity_exit_code_two(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, _manifest, target, _body = _make_available_svg_repo(
+                td,
+                present=True,
+            )
+            target.write_bytes(
+                b'<svg xmlns="http://www.w3.org/2000/svg"><text>changed</text></svg>'
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch.object(source_assets_cli, "REPOSITORY_ROOT", Path(td)),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = source_assets_cli.main(["verify", "--all"])
+
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(stdout.getvalue(), "available=0 unavailable=0 failed=1\n")
+            self.assertEqual(stderr.getvalue(), "")
 
 
 class NetworkPolicyTests(unittest.TestCase):
