@@ -29,7 +29,7 @@
         {
           "not": {
             "type": "string",
-            "pattern": "[?&](?:[Tt][Oo][Kk][Ee][Nn]|[Ss][Ii][Gg]|[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]|[Ee][Xx][Pp][Ii][Rr][Ee][Ss]|[Xx]-[Aa][Mm][Zz]-[^=&#]*|[Xx]-[Gg][Oo][Oo][Gg]-[^=&#]*)(?:=|&|$)"
+            "pattern": "[?]"
           }
         }
       ]

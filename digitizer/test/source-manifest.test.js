@@ -343,6 +343,15 @@ test('schema URL fields require a hostname and forbid userinfo, controls, and fr
   opaquePath.artifacts[0].allowed_hosts = ['www.neumann.com'];
   assert.equal(manifestValidate(opaquePath), true, JSON.stringify(manifestValidate.errors));
 
+  const harmlessSourceQuery = loadFixture('available-pdf.json');
+  harmlessSourceQuery.artifacts[0].source_url = 'https://products.electrovoice.com/re320?id=968996';
+  harmlessSourceQuery.artifacts[0].allowed_hosts = ['products.electrovoice.com'];
+  assert.equal(manifestValidate(harmlessSourceQuery), true, JSON.stringify(manifestValidate.errors));
+
+  const harmlessReferenceQuery = loadFixture('available-pdf.json');
+  harmlessReferenceQuery.references = [{ role: 'product-page', url: 'https://products.electrovoice.com/re320?id=968996' }];
+  assert.equal(manifestValidate(harmlessReferenceQuery), true, JSON.stringify(manifestValidate.errors));
+
   const redactionValidate = compile(redactionSchemaPath);
   for (const url of invalidUrls) {
     const fixture = loadFixture('redaction-replaced.json');
@@ -425,36 +434,21 @@ test('replaced redactions require a canonical HTTPS URL', () => {
   assert.equal(validate(fixture), false, JSON.stringify(validate.errors));
 });
 
-test('replaced redaction canonical URLs reject credential query parameters', () => {
+test('replaced redaction canonical URLs reject every query string', () => {
   const validate = compile(redactionSchemaPath);
-  const credentialKeys = [
-    'token',
-    'ToKeN',
-    'sig',
-    'SIG',
-    'signature',
-    'Signature',
-    'expires',
-    'EXPIRES',
-    'X-Amz-Signature',
-    'x-amz-credential',
-    'X-Goog-Signature',
-    'x-goog-algorithm',
+  const queries = [
+    '?id=968996',
+    '?access_token=secret',
+    '?%61ccess_token=secret',
+    '?token=secret',
+    '?X-Amz-Signature=secret',
   ];
 
-  for (const key of credentialKeys) {
+  for (const query of queries) {
     const fixture = loadFixture('redaction-replaced.json');
-    fixture.entries[0].canonical_url = `https://www.neumann.com/source-asset.svg?${key}=secret`;
-    assert.equal(validate(fixture), false, `${key}: ${JSON.stringify(validate.errors)}`);
+    fixture.entries[0].canonical_url = `https://www.neumann.com/source-asset.svg${query}`;
+    assert.equal(validate(fixture), false, `${query}: ${JSON.stringify(validate.errors)}`);
   }
-
-  const credentialAfterHarmlessQuery = loadFixture('redaction-replaced.json');
-  credentialAfterHarmlessQuery.entries[0].canonical_url = 'https://www.neumann.com/source-asset.svg?id=968996&token=secret';
-  assert.equal(validate(credentialAfterHarmlessQuery), false, JSON.stringify(validate.errors));
-
-  const harmlessQuery = loadFixture('redaction-replaced.json');
-  harmlessQuery.entries[0].canonical_url = 'https://www.neumann.com/source-asset.svg?id=968996';
-  assert.equal(validate(harmlessQuery), true, JSON.stringify(validate.errors));
 });
 
 test('no-stable-endpoint redactions forbid canonical URLs', () => {
