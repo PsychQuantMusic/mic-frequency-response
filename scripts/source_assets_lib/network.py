@@ -276,7 +276,10 @@ class URLPolicy:
             username = parsed.username
             password = parsed.password
             raw_hostname = (parsed.hostname or "").rstrip(".")
-            port = parsed.port or 443
+            if parsed.netloc.endswith(":"):
+                raise ContractError("URL port 不得為空")
+            parsed_port = parsed.port
+            port = 443 if parsed_port is None else parsed_port
         except ValueError as error:
             raise ContractError("URL authority 或 port 無效") from error
         if parsed.scheme != "https":

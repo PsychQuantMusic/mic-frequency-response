@@ -268,6 +268,20 @@ class NetworkPolicyTests(unittest.TestCase):
                 frozenset({"pubs.shure.com"}),
             )
 
+    def test_parse_rejects_explicit_zero_port(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://pubs.shure.com:0/manual.pdf",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_parse_rejects_explicit_empty_port(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://pubs.shure.com:/manual.pdf",
+                frozenset({"pubs.shure.com"}),
+            )
+
     def test_parse_rejects_percent_encoded_signed_query_key_without_leaking_value(self):
         with self.assertRaises(ContractError) as caught:
             URLPolicy.parse(
