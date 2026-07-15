@@ -318,6 +318,43 @@ test('manifest references allow only closed HTTPS provenance variants', () => {
   assert.equal(validate(unknown), false, JSON.stringify(validate.errors));
 });
 
+test('schema URL fields require a hostname and forbid userinfo, controls, and fragments', () => {
+  const invalidUrls = [
+    'https://?token=secret',
+    'https://user:pass@pubs.shure.com/manual.pdf',
+    'https://pubs.shure.com/manual\n.pdf',
+    'https://pubs.shure.com/manual\u0001.pdf',
+    'https://pubs.shure.com/manual.pdf#frequency-response',
+  ];
+  const manifestValidate = compile(manifestSchemaPath);
+
+  for (const url of invalidUrls) {
+    const sourceFixture = loadFixture('available-pdf.json');
+    sourceFixture.artifacts[0].source_url = url;
+    assert.equal(manifestValidate(sourceFixture), false, `source_url ${JSON.stringify(url)}: ${JSON.stringify(manifestValidate.errors)}`);
+
+    const referenceFixture = loadFixture('available-pdf.json');
+    referenceFixture.references = [{ role: 'product-page', url }];
+    assert.equal(manifestValidate(referenceFixture), false, `reference ${JSON.stringify(url)}: ${JSON.stringify(manifestValidate.errors)}`);
+  }
+
+  const opaquePath = loadFixture('available-pdf.json');
+  opaquePath.artifacts[0].source_url = 'https://www.neumann.com/svg/ZzY3NTk2N2YtY2hhcnQ==';
+  opaquePath.artifacts[0].allowed_hosts = ['www.neumann.com'];
+  assert.equal(manifestValidate(opaquePath), true, JSON.stringify(manifestValidate.errors));
+
+  const redactionValidate = compile(redactionSchemaPath);
+  for (const url of invalidUrls) {
+    const fixture = loadFixture('redaction-replaced.json');
+    fixture.entries[0].canonical_url = url;
+    assert.equal(redactionValidate(fixture), false, `canonical_url ${JSON.stringify(url)}: ${JSON.stringify(redactionValidate.errors)}`);
+  }
+
+  const canonicalOpaquePath = loadFixture('redaction-replaced.json');
+  canonicalOpaquePath.entries[0].canonical_url = 'https://www.neumann.com/svg/ZzY3NTk2N2YtY2hhcnQ==';
+  assert.equal(redactionValidate(canonicalOpaquePath), true, JSON.stringify(redactionValidate.errors));
+});
+
 test('manifest artifact and derivation objects are closed', () => {
   const validate = compile(manifestSchemaPath);
   const cases = [
@@ -386,6 +423,38 @@ test('replaced redactions require a canonical HTTPS URL', () => {
   const fixture = loadFixture('redaction-replaced.json');
   delete fixture.entries[0].canonical_url;
   assert.equal(validate(fixture), false, JSON.stringify(validate.errors));
+});
+
+test('replaced redaction canonical URLs reject credential query parameters', () => {
+  const validate = compile(redactionSchemaPath);
+  const credentialKeys = [
+    'token',
+    'ToKeN',
+    'sig',
+    'SIG',
+    'signature',
+    'Signature',
+    'expires',
+    'EXPIRES',
+    'X-Amz-Signature',
+    'x-amz-credential',
+    'X-Goog-Signature',
+    'x-goog-algorithm',
+  ];
+
+  for (const key of credentialKeys) {
+    const fixture = loadFixture('redaction-replaced.json');
+    fixture.entries[0].canonical_url = `https://www.neumann.com/source-asset.svg?${key}=secret`;
+    assert.equal(validate(fixture), false, `${key}: ${JSON.stringify(validate.errors)}`);
+  }
+
+  const credentialAfterHarmlessQuery = loadFixture('redaction-replaced.json');
+  credentialAfterHarmlessQuery.entries[0].canonical_url = 'https://www.neumann.com/source-asset.svg?id=968996&token=secret';
+  assert.equal(validate(credentialAfterHarmlessQuery), false, JSON.stringify(validate.errors));
+
+  const harmlessQuery = loadFixture('redaction-replaced.json');
+  harmlessQuery.entries[0].canonical_url = 'https://www.neumann.com/source-asset.svg?id=968996';
+  assert.equal(validate(harmlessQuery), true, JSON.stringify(validate.errors));
 });
 
 test('no-stable-endpoint redactions forbid canonical URLs', () => {

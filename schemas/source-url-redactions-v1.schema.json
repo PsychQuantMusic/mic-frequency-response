@@ -19,7 +19,20 @@
     },
     "httpsUrl": {
       "type": "string",
-      "pattern": "^https://[^ ]+$"
+      "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:[.][A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*(?::[0-9]{1,5})?(?:/[^\u0000-\u0020\u007F?#]*)?(?:[?][^\u0000-\u0020\u007F#]*)?$"
+    },
+    "safeCanonicalUrl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        {
+          "not": {
+            "type": "string",
+            "pattern": "[?&](?:[Tt][Oo][Kk][Ee][Nn]|[Ss][Ii][Gg]|[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]|[Ee][Xx][Pp][Ii][Rr][Ee][Ss]|[Xx]-[Aa][Mm][Zz]-[^=&#]*|[Xx]-[Gg][Oo][Oo][Gg]-[^=&#]*)(?:=|&|$)"
+          }
+        }
+      ]
     }
   },
   "type": "object",
@@ -41,7 +54,7 @@
               "disposition": { "const": "replaced" },
               "legacy_url_sha256": { "$ref": "#/$defs/sha256" },
               "checked_at": { "$ref": "#/$defs/utcTimestamp" },
-              "canonical_url": { "$ref": "#/$defs/httpsUrl" }
+              "canonical_url": { "$ref": "#/$defs/safeCanonicalUrl" }
             },
             "additionalProperties": false
           },
