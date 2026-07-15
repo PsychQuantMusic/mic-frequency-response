@@ -14,6 +14,7 @@ from .model import ContractError, IntegrityError, RemoteError
 SIGNED_QUERY_KEYS = frozenset({"token", "sig", "signature", "expires"})
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 ABSOLUTE_MAX_SIZE = 100 * 1024 * 1024
+NAT64_WELL_KNOWN_PREFIX = ipaddress.IPv6Network("64:ff9b::/96")
 
 
 def is_signed_query_key(key: str) -> bool:
@@ -51,6 +52,28 @@ def _canonical_ip(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     if isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped is not None:
         return parsed.ipv4_mapped
     return parsed
+
+
+def _is_allowed_public_address(
+    address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    if (
+        not address.is_global
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+        or address.is_loopback
+        or address.is_private
+        or address.is_link_local
+    ):
+        return False
+    embedded_ipv4 = None
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            embedded_ipv4 = address.ipv4_mapped
+        elif address in NAT64_WELL_KNOWN_PREFIX:
+            embedded_ipv4 = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    return embedded_ipv4 is None or _is_allowed_public_address(embedded_ipv4)
 
 
 class _StreamingSignatureVerifier:
@@ -262,6 +285,8 @@ class URLPolicy:
             raise ContractError("URL 不得包含 user-info")
         if parsed.fragment:
             raise ContractError("URL 不得包含 fragment")
+        if not raw_hostname:
+            raise ContractError("URL hostname 不得為空")
         try:
             hostname = raw_hostname.encode("idna").decode("ascii").lower()
         except UnicodeError as error:
@@ -315,10 +340,7 @@ class PinnedHTTPSClient:
         self.max_redirects = max_redirects
 
     def download(self, request: DownloadRequest, target: BinaryIO) -> DownloadResult:
-        try:
-            return self._download(request, target)
-        except TimeoutError as error:
-            raise RemoteError(f"HTTPS 操作逾時：{_redact_url(request.url)}") from error
+        return self._download(request, target)
 
     def _download(self, request: DownloadRequest, target: BinaryIO) -> DownloadResult:
         current_url = request.url
@@ -339,7 +361,7 @@ class PinnedHTTPSClient:
                 parsed_addresses = tuple(ipaddress.ip_address(address) for address in addresses)
             except ValueError as error:
                 raise ContractError(f"DNS 回傳無效位址：{validated.hostname}") from error
-            if not all(address.is_global for address in parsed_addresses):
+            if not all(_is_allowed_public_address(address) for address in parsed_addresses):
                 raise ContractError(f"DNS 位址必須全部是公網位址：{validated.hostname}")
             if self.connector is None:
                 raise ContractError("尚未設定 HTTPS connector")
@@ -359,7 +381,7 @@ class PinnedHTTPSClient:
                     peer = _canonical_ip(connection.peer_ip)
                 except ValueError as error:
                     raise ContractError("HTTPS peer 回傳無效 IP") from error
-                except OSError as error:
+                except (OSError, http.client.HTTPException) as error:
                     raise RemoteError(
                         f"無法取得 HTTPS peer：{validated.redacted_display}"
                     ) from error
@@ -372,7 +394,7 @@ class PinnedHTTPSClient:
                         {"Host": validated.hostname, "Accept-Encoding": "identity"},
                     )
                     response = connection.getresponse()
-                except OSError as error:
+                except (OSError, http.client.HTTPException) as error:
                     raise RemoteError(
                         f"HTTPS request 失敗：{validated.redacted_display}"
                     ) from error
@@ -394,6 +416,7 @@ class PinnedHTTPSClient:
                     if content_encoding is not None and content_encoding.strip().casefold() != "identity":
                         raise ContractError("HTTP Content-Encoding 必須是 identity")
                     content_length_header = response.getheader("Content-Length")
+                    declared_length = None
                     if content_length_header is not None:
                         if (
                             not content_length_header.isascii()
@@ -406,6 +429,7 @@ class PinnedHTTPSClient:
                             raise ContractError("HTTP Content-Length 必須是十進位整數") from error
                         if content_length < 0:
                             raise ContractError("HTTP Content-Length 不得為負數")
+                        declared_length = content_length
                         if content_length > min(request.max_size, ABSOLUTE_MAX_SIZE):
                             raise IntegrityError("HTTP Content-Length 超過檔案上限")
                         if (
@@ -419,12 +443,14 @@ class PinnedHTTPSClient:
                     effective_limit = min(request.max_size, ABSOLUTE_MAX_SIZE)
                     if request.expected_size is not None:
                         effective_limit = min(effective_limit, request.expected_size)
+                    if declared_length is not None:
+                        effective_limit = min(effective_limit, declared_length)
                     while True:
                         try:
                             chunk = response.read(
                                 min(64 * 1024, effective_limit - size + 1)
                             )
-                        except OSError as error:
+                        except (OSError, http.client.HTTPException) as error:
                             raise RemoteError(
                                 f"HTTPS response 讀取失敗：{validated.redacted_display}"
                             ) from error
@@ -433,11 +459,18 @@ class PinnedHTTPSClient:
                         if size + len(chunk) > effective_limit:
                             raise IntegrityError("下載內容超過允許大小")
                         signature.feed(chunk)
-                        target.write(chunk)
+                        try:
+                            written = target.write(chunk)
+                        except OSError as error:
+                            raise ContractError("無法寫入本機暫存檔") from error
+                        if written != len(chunk):
+                            raise ContractError("本機暫存檔發生短寫入")
                         digest.update(chunk)
                         size += len(chunk)
                     if request.expected_size is not None and size != request.expected_size:
                         raise IntegrityError("下載大小與 manifest size_bytes 不符")
+                    if declared_length is not None and size != declared_length:
+                        raise IntegrityError("下載大小與 HTTP Content-Length 不符")
                     signature.finish()
                     sha256 = digest.hexdigest()
                     if request.expected_sha256 is not None and sha256 != request.expected_sha256:

@@ -113,6 +113,17 @@ def _png_request(body):
     )
 
 
+def _unverified_pdf_request(body, *, max_size=100 * 1024 * 1024):
+    return DownloadRequest(
+        url="https://pubs.shure.com/manual.pdf",
+        allowed_hosts=frozenset({"pubs.shure.com"}),
+        expected_media_type="application/pdf",
+        expected_size=None,
+        max_size=max_size,
+        expected_sha256=hashlib.sha256(body).hexdigest(),
+    )
+
+
 @dataclass
 class ResponseFixture:
     status: int = 200
@@ -182,6 +193,22 @@ class ConnectorFixture:
         return connection
 
 
+_UNSET_WRITE_RESULT = object()
+
+
+class _WriterFixture:
+    def __init__(self, *, result=_UNSET_WRITE_RESULT, error=None):
+        self.result = result
+        self.error = error
+
+    def write(self, chunk):
+        if self.error is not None:
+            raise self.error
+        if self.result is _UNSET_WRITE_RESULT:
+            return len(chunk)
+        return self.result
+
+
 class _RecordingBinaryHandle:
     def __init__(self, handle, events):
         self._handle = handle
@@ -220,6 +247,13 @@ class InterfaceExistenceTests(unittest.TestCase):
 
 
 class NetworkPolicyTests(unittest.TestCase):
+    def test_parse_rejects_empty_hostname_even_if_allowlist_contains_empty_string(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https:///manual.pdf",
+                frozenset({""}),
+            )
+
     def test_parse_converts_malformed_authority_to_contract_error(self):
         with self.assertRaises(ContractError):
             URLPolicy.parse(
@@ -426,6 +460,126 @@ class NetworkPolicyTests(unittest.TestCase):
 
 
 class PinnedHTTPSTests(unittest.TestCase):
+    def _assert_target_write_contract_error(self, writer):
+        connector = ConnectorFixture()
+        with self.assertRaises(ContractError) as caught:
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            ).download(_pdf_request(), writer)
+        self.assertEqual(caught.exception.exit_code, 1)
+        self.assertTrue(connector.connections[0].closed)
+
+    def test_target_write_oserror_is_local_contract_error(self):
+        self._assert_target_write_contract_error(
+            _WriterFixture(error=OSError("disk failed"))
+        )
+
+    def test_target_write_timeout_is_local_contract_error(self):
+        self._assert_target_write_contract_error(
+            _WriterFixture(error=TimeoutError("local writer timeout"))
+        )
+
+    def test_target_write_none_is_contract_error(self):
+        self._assert_target_write_contract_error(_WriterFixture(result=None))
+
+    def test_target_write_zero_is_contract_error(self):
+        self._assert_target_write_contract_error(_WriterFixture(result=0))
+
+    def test_target_write_short_result_is_contract_error(self):
+        self._assert_target_write_contract_error(_WriterFixture(result=8))
+
+    def test_bad_status_line_becomes_redacted_remote_error_and_closes(self):
+        connector = ConnectorFixture(
+            ResponseFixture(
+                response_error=network_module.http.client.BadStatusLine("top-secret")
+            )
+        )
+
+        with self.assertRaises(RemoteError) as caught:
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            ).download(_pdf_request(), io.BytesIO())
+
+        self.assertEqual(caught.exception.exit_code, 2)
+        self.assertNotIn("top-secret", str(caught.exception))
+        self.assertTrue(connector.connections[0].closed)
+
+    def test_incomplete_read_becomes_remote_error_and_closes(self):
+        connector = ConnectorFixture(
+            ResponseFixture(
+                read_error=network_module.http.client.IncompleteRead(b"partial", 10)
+            )
+        )
+
+        with self.assertRaises(RemoteError) as caught:
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            ).download(_pdf_request(), io.BytesIO())
+
+        self.assertEqual(caught.exception.exit_code, 2)
+        self.assertTrue(connector.connections[0].closed)
+
+    def test_download_rejects_special_and_embedded_nonpublic_addresses(self):
+        addresses = (
+            "240.0.0.1",
+            "224.0.0.1",
+            "0.0.0.0",
+            "127.0.0.1",
+            "10.0.0.1",
+            "169.254.1.1",
+            "::ffff:127.0.0.1",
+            "64:ff9b::7f00:1",
+        )
+        accepted = []
+        connected = []
+        for address in addresses:
+            connector = ConnectorFixture()
+            try:
+                PinnedHTTPSClient(
+                    resolver=lambda _host, value=address: (value,),
+                    connector=connector,
+                ).download(_pdf_request(), io.BytesIO())
+            except ContractError:
+                pass
+            else:
+                accepted.append(address)
+            if connector.connect_calls:
+                connected.append(address)
+
+        self.assertEqual(accepted, [])
+        self.assertEqual(connected, [])
+
+    def test_content_length_caps_stream_without_expected_size(self):
+        body = b"%PDF-1.7\nextra"
+        declared_size = len(body) - 1
+        connector = ConnectorFixture(
+            ResponseFixture(headers={"Content-Length": str(declared_size)}, body=body)
+        )
+        target = io.BytesIO()
+
+        with self.assertRaises(IntegrityError):
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            ).download(_unverified_pdf_request(body), target)
+
+        self.assertLessEqual(len(target.getvalue()), declared_size)
+
+    def test_content_length_requires_exact_eof_without_expected_size(self):
+        body = b"%PDF-1.7\n"
+        connector = ConnectorFixture(
+            ResponseFixture(headers={"Content-Length": str(len(body) + 1)}, body=body)
+        )
+
+        with self.assertRaises(IntegrityError):
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            ).download(_unverified_pdf_request(body), io.BytesIO())
+
     def test_download_rejects_svg_doctype_and_entity_declarations(self):
         bodies = (
             b'<!doctype svg><svg xmlns="http://www.w3.org/2000/svg"/>',
