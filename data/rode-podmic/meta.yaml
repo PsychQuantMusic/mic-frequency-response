@@ -29,12 +29,17 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 316
+    formal_frequency_span_hz: [26.054, 16066.524]
+    verification_relation: current-csv-directly-verified
     condition: >
       on-axis (0°) typical response; low-mid warmth bump ~+5.2 dB @ 147 Hz, mid dip ~-4.9 dB @ 408 Hz,
       small bump ~+2.8 dB @ 900 Hz, presence rise peaking +6.1 dB @ 5.5 kHz and +7.0 dB @ 9.4 kHz,
       steep HF rolloff (-10 dB by ~12.6 kHz, curve reaches chart floor -50 dB @ ~16 kHz);
       LF rolloff from ~150 Hz down to -9.4 dB @ 26 Hz (curve drawn start)
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, golden --target-color)"
   date: 2026-07-09
   result: >

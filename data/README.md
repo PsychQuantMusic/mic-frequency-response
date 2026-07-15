@@ -21,15 +21,18 @@ data/
 
 ## 正式收錄政策
 
-每條曲線必須有 `data_origin` 與 `digitization_method`，且只能是下列配對：
+每條曲線必須有 `data_origin`、`digitization_method` 與 `reproduction_status`，且只能是下列組合：
 
-| `data_origin` | `digitization_method` | 可接受來源 |
-|---|---|---|
-| `manufacturer-numeric` | `manufacturer-values` | 原廠 CSV、FRD 或數值表 |
-| `official-published-curve` | `vector-path-extraction` | 官方 SVG／PDF 中可識別且可重現解析的向量路徑 |
-| `official-published-curve` | `seeded-pixel-trace` | 官方點陣圖中以固定校準、種子與參數可重現的像素追蹤 |
+| `data_origin` | `digitization_method` | `reproduction_status` | 可接受來源 |
+|---|---|---|---|
+| `manufacturer-numeric` | `manufacturer-values` | `manufacturer-issued` | 原廠 CSV、FRD 或數值表 |
+| `official-published-curve` | `vector-path-extraction` | `vector-source-recorded` | 官方 SVG／PDF 中已識別的向量路徑 |
+| `official-published-curve` | `seeded-pixel-trace` | `command-recorded` | 已保存輸入、crop、校準、種子與完整參數的像素追蹤 |
+| `official-published-curve` | `seeded-pixel-trace` | `legacy-overlay-verified` | 舊有演算法 trace 有官方來源與 overlay，但缺少完整重跑指令 |
 
 人工或 AI 目測估點（manual estimate）不得進入正式 `data/`。Overlay 只能驗證重繪是否貼近來源曲線，不能把不可重現的目測點升級為合格資料。
+
+`legacy-overlay-verified` 是一次性遷移狀態，合法項目凍結在 `legacy-overlay-verified.txt`；新增資料不得使用。清單只應因重新 trace 後升級或移除而縮小。
 
 頻響資料另有範圍限制：
 
@@ -45,9 +48,15 @@ data/
 1. 找到原廠發布的數值或官方圖表，記錄官方 URL、頁碼／圖名與取得日期。
 2. 原廠數值直接匯入；官方圖表只用 `vector-path-extraction` 或可重現的 `seeded-pixel-trace`。若無法穩定分離目標曲線，停止入庫。
 3. 頻響 CSV 裁在 `frequency_range_hz` 內，只保留來源中已有的點；不要補端點、插值或外推。
-4. 把 CSV 放到 `data/<brand>-<model>/`，並在對應 `curves[]` 加入 `data_origin` 與 `digitization_method`。
+4. 把 CSV 放到 `data/<brand>-<model>/`，並在對應 `curves[]` 加入 `data_origin`、`digitization_method` 與 `reproduction_status`。
 5. 官方圖表數位化必須加入 `verification`（polar 使用 `polar_verification`），記錄校準、參數、overlay 統計或向量交叉驗證。
 6. **不要**把原廠 PDF／SVG／圖片 commit 進來（`.gitignore` 已擋 `data/` 下的圖片）。
+
+若驗證統計來自裁切前的完整 trace，而正式 CSV 已依原廠範圍或來源缺口刪列，請使用
+`verification_relation: retained-unmodified-subset-of-verified-trace`，並在 `verification.scope_note`
+明確說明；不得把裁切前點數或頻率尾端冒充目前正式 CSV。`formal_point_count` 與
+正式 domain 由測試逐檔對照 CSV：頻響使用 `formal_frequency_span_hz`，polar 使用
+`formal_angle_span_deg`。
 
 最小曲線 metadata：
 
@@ -63,7 +72,17 @@ curves:
     condition: "0-degree on-axis response as published"
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: command-recorded
+    formal_point_count: 164
+    formal_frequency_span_hz: [80, 6948.831]
+    verification_relation: current-csv-directly-verified
+    trace_command: >
+      node digitizer/cli.js --bin /path/to/chart.bin --size WIDTHxHEIGHT
+      --cal-x PX1,HZ1 PX2,HZ2 --cal-y PY1,DB1 PY2,DB2
+      --seed PX,PY --x-range X0,X1 --strategy viterbi --tolerance 40
+      --max-jump 12 --target-color R,G,B,A
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay_verify.py --interpolated"
   result: "record measured deviations, gaps, and ambiguities"
 ```

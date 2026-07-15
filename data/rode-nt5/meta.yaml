@@ -24,8 +24,13 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 101
+    formal_frequency_span_hz: [36.443, 19999.084]
+    verification_relation: current-csv-directly-verified
     condition: "on-axis (0°) typical response; smooth flat mid, broad HF presence lift peaking ~+5.4 dB @ 13.8 kHz, LF rolloff from ~150 Hz (−12.9 dB @ 36 Hz, curve drawn start)"
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, red --target-color)"
   date: 2026-07-09
   result: >

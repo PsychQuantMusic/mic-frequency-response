@@ -18,8 +18,17 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 67
+    formal_frequency_span_hz: [20.103, 18915.916]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: "on-axis (0°) typical response; smooth flat with HF presence lift ~+4.4 dB @ 10 kHz"
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--typical.csv]
   method: "interpolated overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
   date: 2026-07-09
   result: "median |dev| 0.004 dB, max 0.048 dB over 965 measured columns; zero gaps, 0 ambiguous columns"

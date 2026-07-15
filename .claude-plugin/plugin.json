@@ -1,6 +1,6 @@
 {
   "name": "mic-frequency-response",
-  "description": "Build a provenance-aware microphone response database from manufacturer numeric values or reproducibly traced official published curves. Ships frequency-response and polar-pattern skills plus a zero-dependency seeded pixel Digitizer. Formal data rejects manual/AI visual point estimates, records per-curve data_origin and digitization_method, and keeps frequency-response CSV points inside the manufacturer-declared range. Original source images are never committed.",
+  "description": "Build a provenance-aware microphone response database from manufacturer numeric values or algorithmically digitized official published curves. Ships frequency-response and polar-pattern skills plus a zero-dependency seeded pixel Digitizer. Formal data rejects manual/AI visual point estimates, records per-curve origin, method, and reproduction status, and keeps frequency-response CSV points inside the manufacturer-declared range. Original source images are never committed.",
   "version": "0.2.0",
   "author": {
     "name": "che (PsychQuantMusic)"

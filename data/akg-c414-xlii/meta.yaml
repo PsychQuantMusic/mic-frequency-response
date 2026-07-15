@@ -18,8 +18,17 @@ curves:
   - file: frequency-response--cardioid.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 281
+    formal_frequency_span_hz: [29.348, 19967.799]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: "Cardioid mode on-axis FR (0 dB pre-att, no bass-cut filter; XLII C12-like presence lift ~+3.5 dB @ 5-6 kHz)"
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--cardioid.csv]
   method: "interpolated overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
   date: 2026-07-09
   result: "median |dev| 0.003 dB, max 0.038 dB over 2030 measured columns; zero gaps, 0 ambiguous columns"

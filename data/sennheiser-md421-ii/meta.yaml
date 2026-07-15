@@ -27,6 +27,10 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 185
+    formal_frequency_span_hz: [40.158, 16751.612]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: >
       on-axis (0°) typical response, bass-control switch in position "M" (music / full bass,
       least low-frequency attenuation); relative to −50 dBv gridline (0 dB)
@@ -36,6 +40,11 @@ polar_note: >
   同色群組曲線在前方近乎重合、後方以難分辨的虛線交疊；此密度下無法在 facts-only 標準下可靠地
   逐頻分離判讀，故本批**未** digitize polar 各曲線（誠實跳過優於輸出不可靠數據）。FR 已捕捉主要頻譜行為。
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--typical.csv]
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14)"
   date: 2026-07-09
   result: >
@@ -46,7 +55,8 @@ verification:
     低頻自 ~40 Hz 起（M 設定 ~−11.7 dB rel = −61.7 dBv），升至中頻平台 ~−4 dB rel（~−54 dBv）；
     presence lift 為 MD 421 招牌（peak +4.1 dB rel ≈ −45.9 dBv @ ~4.7 kHz，寬廣上中頻/高頻抬升），
     ~8–13 kHz 次平台 ~+1 dB，之後 ~13 kHz 起陡降至 −15 dB rel（−65 dBv）@ ~20 kHz。
-    published nominal frequency range 30–17,000 Hz；圖上實繪曲線延伸 ~40 Hz–20 kHz，CSV 依實繪範圍記錄。
+    published nominal frequency range 30–17,000 Hz；圖上實繪曲線延伸 ~40 Hz–20 kHz，但正式 CSV
+    依 published range 裁切，最後一點為 16,751.612 Hz；17 kHz 以上來源圖尾端不收錄。
 license_note: >
   數據為事實資料（frequency→dB），從公開官方 Quick Guide 頻響圖判讀，非原圖之重製。
   原圖（PDF/PNG）未收錄進 repo。

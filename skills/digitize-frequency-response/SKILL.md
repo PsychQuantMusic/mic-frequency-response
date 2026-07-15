@@ -9,17 +9,20 @@ description: >
 
 # Digitize Frequency Response
 
-把原廠發布的頻率響應數值，或官方圖表中可重現解析的曲線，轉成 `(freq_hz, level_db)` CSV。
+把原廠發布的頻率響應數值，或官方圖表中經向量解析／演算法描線取得的曲線，轉成 `(freq_hz, level_db)` CSV。每條曲線都必須用 `reproduction_status` 說明可重跑程度；`legacy-overlay-verified` 不代表已保存完整重跑指令。
 
 ## 核心原則
 
 正式 `data/` 只接受兩種證據：
 
-| `data_origin` | `digitization_method` | 資料來源 |
-|---|---|---|
-| `manufacturer-numeric` | `manufacturer-values` | 原廠直接發布的 CSV、FRD 或數值表 |
-| `official-published-curve` | `vector-path-extraction` | 官方 SVG／PDF 的可識別向量路徑 |
-| `official-published-curve` | `seeded-pixel-trace` | 官方點陣圖的可重現 seeded trace |
+| `data_origin` | `digitization_method` | `reproduction_status` | 資料來源 |
+|---|---|---|---|
+| `manufacturer-numeric` | `manufacturer-values` | `manufacturer-issued` | 原廠直接發布的 CSV、FRD 或數值表 |
+| `official-published-curve` | `vector-path-extraction` | `vector-source-recorded` | 官方 SVG／PDF 的可識別向量路徑 |
+| `official-published-curve` | `seeded-pixel-trace` | `command-recorded` | 已保存完整重跑紀錄的新 seeded trace |
+| `official-published-curve` | `seeded-pixel-trace` | `legacy-overlay-verified` | 凍結清單中的舊演算法 trace；有官方來源與 overlay，但未保存完整歷史重跑指令 |
+
+新增資料只允許 `manufacturer-issued`、`vector-source-recorded` 或 `command-recorded`；不得把新資料標成 `legacy-overlay-verified`。
 
 由官方圖表轉出的 CSV 是 **digitized data**，不是原廠 raw data。人工或 AI 逐點目測屬於 manual estimate，不能進正式 `data/`，也不能在 deterministic trace 失敗時當 fallback。
 
@@ -64,6 +67,7 @@ description: >
 ```yaml
 data_origin: manufacturer-numeric
 digitization_method: manufacturer-values
+reproduction_status: manufacturer-issued
 ```
 
 #### 官方向量路徑
@@ -79,6 +83,7 @@ digitization_method: manufacturer-values
 ```yaml
 data_origin: official-published-curve
 digitization_method: vector-path-extraction
+reproduction_status: vector-source-recorded
 ```
 
 #### 官方點陣曲線
@@ -106,9 +111,24 @@ node digitizer/cli.js --bin /tmp/chart.bin --size WxH \
 ```yaml
 data_origin: official-published-curve
 digitization_method: seeded-pixel-trace
+reproduction_status: command-recorded
+formal_point_count: POINT_COUNT
+formal_frequency_span_hz: [FIRST_RETAINED_HZ, LAST_RETAINED_HZ]
+verification_relation: current-csv-directly-verified
+trace_command: >
+  node digitizer/cli.js --bin /path/to/chart.bin --size WIDTHxHEIGHT
+  --cal-x PX1,HZ1 PX2,HZ2 --cal-y PY1,DB1 PY2,DB2
+  --seed PX,PY --x-range X0,X1 --strategy viterbi --tolerance 40
+  --max-jump 14 --target-color R,G,B,A --simplify 0.05
 ```
 
 若 trace 會在交疊處任意跳線、需要逐點目測才能完成，或無法由固定參數重現，停止入庫。
+
+`legacy-overlay-verified` 只供 `data/legacy-overlay-verified.txt` 中已凍結的舊資料誠實揭露「有官方來源與 overlay、但完整歷史重跑指令未保存」。新增或重新產生的資料不得使用這個狀態。
+
+若驗證結果記錄的是裁切前 trace，正式 CSV 只能是其中「未改寫、只刪列」的子集合，並標為
+`retained-unmodified-subset-of-verified-trace`；同一份 `verification` 必須加入 `scope_note`。
+否則使用 `current-csv-directly-verified`。兩種情況都要保存與 CSV 精確一致的點數及首末頻率。
 
 ### 4. 套用正式頻率範圍
 
@@ -155,7 +175,17 @@ curves:
     condition: "typical on-axis response as published"
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: command-recorded
+    formal_point_count: POINT_COUNT
+    formal_frequency_span_hz: [FIRST_RETAINED_HZ, LAST_RETAINED_HZ]
+    verification_relation: current-csv-directly-verified
+    trace_command: >
+      node digitizer/cli.js --bin /path/to/chart.bin --size WIDTHxHEIGHT
+      --cal-x PX1,HZ1 PX2,HZ2 --cal-y PY1,DB1 PY2,DB2
+      --seed PX,PY --x-range X0,X1 --strategy viterbi --tolerance 40
+      --max-jump 14 --target-color R,G,B,A --simplify 0.05
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay_verify.py --interpolated"
   result: "record points, median/max deviation, gaps, and ambiguities"
 ```

@@ -27,10 +27,18 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
-    condition: "typical on-axis free-field response — solid '0.06 m (2 ft)' curve as published (multi-distance chart; proximity curves at 3 mm/25 mm/51 mm not digitized)"
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 97
+    formal_frequency_span_hz: [37.276, 9553.417]
+    verification_relation: retained-unmodified-subset-of-verified-trace
+    condition: "typical on-axis free-field response — solid '0.06 m (2 ft)' curve as published in the same multi-distance chart as the separately retained 3 mm/25 mm/51 mm curves"
   - file: frequency-response--proximity-3mm.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 156
+    formal_frequency_span_hz: [45.419, 9610.059]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: >
       full-band response at 3mm source distance (DASHED "3mm" curve; proximity-effect bass
       boost +13.6 dB @ 50 Hz decaying to the shared far-field HF above ~1.6 kHz). Distinct LF
@@ -39,6 +47,10 @@ curves:
   - file: frequency-response--proximity-25mm.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 139
+    formal_frequency_span_hz: [46.67, 9610.059]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: >
       full-band response at 25mm source distance (DASHED "25mm" curve; proximity-effect bass
       boost +8.2 dB @ 50 Hz decaying to the shared far-field HF above ~1.6 kHz). Distinct LF
@@ -47,12 +59,25 @@ curves:
   - file: frequency-response--proximity-51mm.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 146
+    formal_frequency_span_hz: [48.833, 9610.059]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: >
       full-band response at 51mm source distance (DASHED "51mm" curve; proximity-effect bass
       boost +4.9 dB @ 50 Hz decaying to the shared far-field HF above ~1.6 kHz). Distinct LF
       portion traced per-curve via guide-band isolation; shared HF = the single merged line
       the chart draws for all distances (#16). Full self-contained response.
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves:
+    - frequency-response--typical.csv
+    - frequency-response--proximity-3mm.csv
+    - frequency-response--proximity-25mm.csv
+    - frequency-response--proximity-51mm.csv
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
   date: 2026-07-09
   result: >
@@ -61,6 +86,9 @@ verification:
     tightened window=10 px (isolates solid curve): median 0.023 dB, max 0.85 dB, gaps 0, ambiguous 21.
     Visual overlay confirms green trace rides the solid '0.06 m (2 ft)' curve across full range
     (scoop, merge, 4 kHz presence peak, HF notch, steep rolloff) — outliers are dashed-curve mismatches, not trace error.
+    Issue #16 近接曲線驗證：proximity-3mm、25mm、51mm 均已個別進行 overlay 覆核；
+    各曲線內插 median |dev| 為 0.020–0.024 dB。另行重描的 0.06 m 曲線與 typical
+    交叉檢查，median |dev| 0.158 dB。
   note: >
     ambiguous ≈ 20 columns = black vertical gridlines saturating their column (Shure black-grid convention).
     max metric inflated by multi-curve overlap region — a documented overlay limitation on converging-curve charts,

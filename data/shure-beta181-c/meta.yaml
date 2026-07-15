@@ -22,8 +22,13 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 109
+    formal_frequency_span_hz: [50.427, 19914.565]
+    verification_relation: current-csv-directly-verified
     condition: "typical on-axis response, cardioid capsule (Beta 181/C), as published"
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14)"
   date: 2026-07-09
   result: >

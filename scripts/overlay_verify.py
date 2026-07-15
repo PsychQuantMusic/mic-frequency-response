@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AI 視覺判讀的自我驗證：把判讀的 CSV 曲線 overlay 回原圖，量化偏差。(#6, #7)
+"""官方圖表數位化結果的重繪保真驗證：把 CSV 曲線 overlay 回原圖，量化偏差。(#6, #7)
 
 原理：原圖 = ground truth。把 CSV 反算回原圖像素座標：
   1. 疊上標記輸出 overlay.png（視覺比對 — 主要驗證）

@@ -8,7 +8,7 @@
     {
       "name": "mic-frequency-response",
       "source": "./",
-      "description": "Build a queryable microphone response database from manufacturer numeric values or reproducibly traced official charts. Includes a zero-dependency seeded pixel Digitizer and skills for frequency-response and polar-pattern data. Per-curve provenance is required; manual/AI visual point estimates are rejected from formal data."
+      "description": "Build a queryable microphone response database from manufacturer numeric values or algorithmically digitized official charts. Includes a zero-dependency seeded pixel Digitizer and skills for frequency-response and polar-pattern data. Per-curve origin, method, and reproduction status are required; manual/AI visual point estimates are rejected from formal data."
     }
   ]
 }

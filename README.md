@@ -1,9 +1,9 @@
 # mic-frequency-response
 
-麥克風頻率響應資料庫 — 保存原廠發布的數值，以及從官方圖表可重現地數位化出的曲線資料。
+麥克風頻率響應資料庫 — 保存原廠發布的數值，以及從官方圖表以向量解析或演算法描線取得的曲線資料。
 
 > **動機**：每支麥克風的頻率響應都很重要，但許多廠商不提供機器可讀的原始數值，只發布曲線圖。
-> 這個專案提供 ① 一個把官方圖表可重現地還原成 `(Hz, dB)` 資料的 **Digitizer**，以及
+> 這個專案提供 ① 一個把官方圖表還原成 `(Hz, dB)` 資料的 **Digitizer**，以及
 > ② 一個以 **CSV 為應用程式資料 contract** 的頻響資料庫。
 
 CSV 是本 repo 供程式讀取的正式格式，**不代表每份 CSV 都是原廠 raw data**。由官方圖表轉換出的 CSV 是衍生的 digitized data，必須與原廠直接發布的數值分開標示。
@@ -24,7 +24,7 @@ PsychQuantMusic/mic-frequency-response   （本 repo）
 ```
 
 **設計原則**：CSV 是穩定的 contract，工具（網頁 / Swift）可以換；證據來源與轉換方法則由 `meta.yaml` 保存。
-座標校準、種子選擇與 overlay 覆核可以由人操作，但正式資料點只能來自可重現的數值匯入、向量路徑解析或 seeded pixel trace。人工或 AI 目測估點不是入庫 fallback。
+座標校準、種子選擇與 overlay 覆核可以由人操作，但正式資料點只能來自原廠數值匯入、向量路徑解析或 seeded pixel trace；新增 trace 必須保存完整重跑紀錄。人工或 AI 目測估點不是入庫 fallback。
 
 ## 分期路線圖
 
@@ -48,7 +48,7 @@ data/
 
 ### CSV schema
 
-極簡兩欄，保存原廠數值或可重現 trace 取得的資料點：
+極簡兩欄，保存原廠數值或通過來源契約的官方圖表數位化資料點：
 
 ```csv
 freq_hz,level_db
@@ -77,18 +77,30 @@ curves:
     condition: "typical on-axis response as published"
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: command-recorded
+    formal_point_count: 164
+    formal_frequency_span_hz: [40, 6948.831]
+    verification_relation: current-csv-directly-verified
+    trace_command: >
+      node digitizer/cli.js --bin /path/to/chart.bin --size WIDTHxHEIGHT
+      --cal-x PX1,HZ1 PX2,HZ2 --cal-y PY1,DB1 PY2,DB2
+      --seed PX,PY --x-range X0,X1 --strategy viterbi --tolerance 40
+      --max-jump 12 --target-color R,G,B,A
 license_note: "資料為 frequency→dB 的事實對應，非原圖之重製。原圖未收錄。"
 ```
 
 每條 `curves[]` 都必須使用下列其中一組來源與方法：
 
-| `data_origin` | `digitization_method` | 意義 |
-|---|---|---|
-| `manufacturer-numeric` | `manufacturer-values` | 原廠直接發布的 CSV、FRD 或數值表 |
-| `official-published-curve` | `vector-path-extraction` | 從官方 SVG／PDF 的可識別向量路徑解析 |
-| `official-published-curve` | `seeded-pixel-trace` | 從官方點陣圖以固定校準、種子與參數追蹤 |
+| `data_origin` | `digitization_method` | `reproduction_status` | 意義 |
+|---|---|---|---|
+| `manufacturer-numeric` | `manufacturer-values` | `manufacturer-issued` | 原廠直接發布的 CSV、FRD 或數值表 |
+| `official-published-curve` | `vector-path-extraction` | `vector-source-recorded` | 從官方 SVG／PDF 的已識別向量路徑解析 |
+| `official-published-curve` | `seeded-pixel-trace` | `command-recorded` | 固定輸入、crop、校準、種子與參數均已記錄的新 trace |
+| `official-published-curve` | `seeded-pixel-trace` | `legacy-overlay-verified` | 舊有演算法 trace 有官方來源與 overlay，但未保存完整重跑指令 |
 
 人工／AI 目測估點不在 allowlist 內，不得放進正式 `data/`。
+`legacy-overlay-verified` 只適用於本次遷移時凍結在 `data/legacy-overlay-verified.txt` 的既有曲線；
+清單只能縮減或把項目升級為 `command-recorded`，新增資料不得沿用 legacy 狀態。
 
 ## 收錄邊界
 
@@ -96,11 +108,13 @@ license_note: "資料為 frequency→dB 的事實對應，非原圖之重製。�
 - 頻響 CSV 只能保留原廠標示 `frequency_range_hz` 內，且來源曲線實際存在的點。
 - 不補端點、不填補缺口、不插值成新觀測值，也不外推。沒有資料的區段保持空白。
 - `--simplify` 只能刪除重繪誤差容許範圍內的冗餘 trace 點；不得跨越來源曲線沒有資料的缺口。
-- 官方圖表數位化必須保留來源 URL、頁碼／圖名、取得日期、校準與 overlay／向量交叉驗證紀錄。
+- 官方圖表數位化必須保留來源 URL、頁碼／圖名、取得日期、非空白 condition，以及逐條明列 `verification.curves` 的 overlay／向量交叉驗證 method 與 result。
+- 新增 seeded trace 還必須保存輸入／crop、校準、種子與完整參數，標為 `command-recorded`；舊資料缺少完整指令時只能誠實標成凍結的 legacy 狀態。
+- 每條曲線的 `formal_point_count` 與正式 domain 必須精確對應目前 CSV：頻響使用 `formal_frequency_span_hz`，polar 使用 `formal_angle_span_deg`；`verification_relation` 用來區分「目前 CSV 直接驗證」與「已驗證 trace 經刪列後保留的未改寫子集合」。後者的 `verification.scope_note` 必須說明舊統計與正式 CSV 的範圍差異。
 - 無法以可重現方式分離目標曲線時，該曲線不入庫；不能退回目測估點。
 - `anchors.yaml` 只是正式 CSV 的回歸快照，用來偵測意外漂移；它不是原廠獨立證據，也不能驗證曲線真實性。
 
-下游 UI 必須依 `data_origin` 顯示「原廠數值」或「由官方圖表數位化」，不得把兩者統稱為原廠 raw data。
+下游 UI 必須依 `data_origin`、`digitization_method` 與 `reproduction_status` 顯示來源層級，不得把數位化或 legacy 資料統稱為原廠 raw data，也不得把 legacy 曲線宣稱為完整可重跑。
 
 ## 版權與來源
 

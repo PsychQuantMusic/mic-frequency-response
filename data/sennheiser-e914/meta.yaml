@@ -40,11 +40,16 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 178
+    formal_frequency_span_hz: [40.464, 19895.235]
+    verification_relation: current-csv-directly-verified
     condition: >
       on-axis (0deg) free-field frontal response, FLAT setting (switchable low-cut / bass roll-off
       filter OFF; sensitivity pad does not affect response shape). Relative to 0 dB midband plateau.
       Plotted range 40 Hz - 20 kHz (chart left border = 40 Hz).
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay_verify.py --interpolated --target-color 89,152,212 (per-column reinterpolated deviation)"
   date: 2026-07-09
   points: 178

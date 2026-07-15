@@ -30,16 +30,31 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 266
+    formal_frequency_span_hz: [50.875, 19931.783]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: "typical on-axis response, 0.6 m (2 ft) from sound source (as published, solid curve)"
   - file: frequency-response--proximity-1cm.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 158
+    formal_frequency_span_hz: [102.112, 2414.09]
+    verification_relation: current-csv-directly-verified
     condition: >
       close-mic proximity response (DASHED "1 cm" curve; proximity bass boost ~+15 dB plateau
       130-240 Hz, converging with the far-field 0.6m curve at ~2.4 kHz). Distinct dashed portion
       as drawn (#16, 100Hz-2.4kHz); above ~2.4kHz the response = the far-field typical. Solid-mask
       isolation. 0.6m cross-check max 0.041 dB.
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves:
+    - frequency-response--typical.csv
+    - frequency-response--proximity-1cm.csv
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14)"
   date: 2026-07-09
   result: >
@@ -49,6 +64,9 @@ verification:
     收於 ~-4 dB @ 20 kHz——綠十字全程不離 solid、未跳上 dashed。
     以 ±9 px 緊窗（不可及 ~20 px 外的 dashed）獨立量 solid 保真度：median 0.081 / max 0.415 dB（264 點，
     max 屬線寬量化、落在平坦 0 dB 段）。
+    Issue #16 近接曲線驗證：frequency-response--proximity-1cm.csv 已個別進行 overlay 覆核；
+    內插 median |dev| 0.004 dB。另行重描的 0.6 m 曲線與 typical 交叉檢查，
+    max |dev| 0.041 dB。
   caveat: >
     工具回報 interpolated max 5.44 dB，僅侷限於 2 欄（1003/1010 Hz，正落在 1 kHz 垂直網格線欄），
     該欄同時存在尚未合流的 dashed 曲線像素（~+5 dB），驗證器在網格線欄鎖到 dashed 而非 solid——

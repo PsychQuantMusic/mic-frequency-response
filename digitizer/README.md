@@ -33,7 +33,20 @@ python3 -m http.server 8000
 ```yaml
 data_origin: official-published-curve
 digitization_method: seeded-pixel-trace
+reproduction_status: command-recorded
+formal_point_count: 164
+formal_frequency_span_hz: [40, 6948.831]
+verification_relation: current-csv-directly-verified
+trace_command: >
+  node digitizer/cli.js --bin /path/to/chart.bin --size WIDTHxHEIGHT
+  --cal-x PX1,HZ1 PX2,HZ2 --cal-y PY1,DB1 PY2,DB2
+  --seed PX,PY --x-range X0,X1 --strategy viterbi --tolerance 40
+  --max-jump 12 --target-color R,G,B,A
 ```
+
+若 overlay／向量統計描述裁切前 trace，而正式 CSV 只是刪除原廠範圍外或來源缺口後資料，改用
+`verification_relation: retained-unmodified-subset-of-verified-trace`，並在 `verification.scope_note`
+說明兩者關係。正式點數與首末頻率不可沿用裁切前數字。
 
 若來源是原廠直接提供的數值，請使用 `manufacturer-numeric` + `manufacturer-values`，不必經過本工具。若來源是可解析的官方向量路徑，請使用 `official-published-curve` + `vector-path-extraction`。
 

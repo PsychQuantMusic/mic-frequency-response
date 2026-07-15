@@ -9,17 +9,20 @@ description: >
 
 # Digitize Polar Pattern
 
-把原廠發布的極座標數值，或官方 polar pattern 中可重現解析的曲線，轉成 `(angle_deg, level_db)` CSV；一個頻率一個檔案。
+把原廠發布的極座標數值，或官方 polar pattern 中經向量解析／演算法描線取得的曲線，轉成 `(angle_deg, level_db)` CSV；一個頻率一個檔案。每條曲線都必須用 `reproduction_status` 說明可重跑程度；`legacy-overlay-verified` 不代表已保存完整重跑指令。
 
 ## 收錄契約
 
 每條曲線只能使用：
 
-| `data_origin` | `digitization_method` | 資料來源 |
-|---|---|---|
-| `manufacturer-numeric` | `manufacturer-values` | 原廠直接發布的角度／dB 數值 |
-| `official-published-curve` | `vector-path-extraction` | 官方向量圖中可識別的 polar path |
-| `official-published-curve` | `seeded-pixel-trace` | 官方點陣圖中可重現且可穩定分離的曲線 |
+| `data_origin` | `digitization_method` | `reproduction_status` | 資料來源 |
+|---|---|---|---|
+| `manufacturer-numeric` | `manufacturer-values` | `manufacturer-issued` | 原廠直接發布的角度／dB 數值 |
+| `official-published-curve` | `vector-path-extraction` | `vector-source-recorded` | 官方向量圖中可識別的 polar path |
+| `official-published-curve` | `seeded-pixel-trace` | `command-recorded` | 已保存完整重跑紀錄且可穩定分離的曲線 |
+| `official-published-curve` | `seeded-pixel-trace` | `legacy-overlay-verified` | 凍結清單中的舊演算法 trace；有官方來源與 overlay，但未保存完整歷史重跑指令 |
+
+新增資料只允許 `manufacturer-issued`、`vector-source-recorded` 或 `command-recorded`；不得把新資料標成 `legacy-overlay-verified`。
 
 人工或 AI 沿角度目測讀值是 manual estimate，不得進正式 `data/`。現有座標轉換與 overlay 工具本身不是 extractor；如果沒有可重現的 curve trace，就不能入庫。
 
@@ -47,6 +50,7 @@ Overlay 只能驗證點是否貼線，不能證明曲線對應哪個頻率。若
 ```yaml
 data_origin: manufacturer-numeric
 digitization_method: manufacturer-values
+reproduction_status: manufacturer-issued
 ```
 
 #### 官方向量路徑
@@ -56,6 +60,7 @@ digitization_method: manufacturer-values
 ```yaml
 data_origin: official-published-curve
 digitization_method: vector-path-extraction
+reproduction_status: vector-source-recorded
 ```
 
 #### 官方點陣曲線
@@ -70,11 +75,21 @@ digitization_method: vector-path-extraction
 ```yaml
 data_origin: official-published-curve
 digitization_method: seeded-pixel-trace
+reproduction_status: command-recorded
+formal_point_count: POINT_COUNT
+formal_angle_span_deg: [FIRST_RETAINED_ANGLE, LAST_RETAINED_ANGLE]
+verification_relation: current-csv-directly-verified
+trace_command: >
+  polar-extractor --bin /path/to/chart.bin --size WIDTHxHEIGHT
+  --cal-center CX,CY --cal-rings R0,DB0 R1,DB1
+  --zero-angle-deg 0 --rotation clockwise --seed PX,PY --angle-range A0,A1
 ```
 
 `digitizer/polar-coords.js` 的 `makePolarTransform(calib)` 只提供 `(angle_deg, level_db) ↔ (px, py)` 座標轉換；`scripts/overlay_verify.py --polar` 只負責驗證。兩者不會自動把人工目測點變成可重現 trace。
 
 目前工具若不能穩定抽出目標 polar 曲線，請明確回報「無可重現 trace，不能入庫」，不要改用 15°／30° 人工取樣。
+
+`legacy-overlay-verified` 只供 `data/legacy-overlay-verified.txt` 中凍結的舊資料；新增或重新產生的 polar 曲線不得使用。
 
 ### 3. 不補造未觀測資料
 
@@ -113,8 +128,13 @@ curves:
     condition: "1 kHz as published; 0 degrees on-axis"
     data_origin: official-published-curve
     digitization_method: vector-path-extraction
+    reproduction_status: vector-source-recorded
+    formal_point_count: POINT_COUNT
+    formal_angle_span_deg: [FIRST_RETAINED_ANGLE, LAST_RETAINED_ANGLE]
+    verification_relation: current-csv-directly-verified
 polar_read_note: "record angular domain, zero direction, rotation, and dB scale"
 polar_verification:
+  curves: [polar-pattern--1000hz.csv]
   method: "overlay_verify.py --polar plus independent path identity check"
   result: "record points, median/max deviation, gaps, and ambiguities"
 ```

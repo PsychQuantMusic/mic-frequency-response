@@ -28,12 +28,17 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 90
+    formal_frequency_span_hz: [40.347, 19856.879]
+    verification_relation: current-csv-directly-verified
     condition: "on-axis (0°, free-field) typical response, relative to flat plateau"
 polar_note: >
   官方 p.2 有 polar pattern 圖（8 條頻率曲線 125/250/500/1000/2000/4000/8000/16000 Hz 的左右半分圖，
   0° 在上、外圈 0 dB、5 dB/圈），但同色群組曲線在此密度下無法在 facts-only 標準下可靠逐頻分離，
   故本批未 digitize polar。FR 已捕捉主要頻譜行為。
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay vs original chart (scripts/overlay_verify.py, --interpolated)"
   date: 2026-07-09
   result: >

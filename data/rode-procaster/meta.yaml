@@ -29,12 +29,21 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 199
+    formal_frequency_span_hz: [78.842, 17934.419]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: >
       on-axis typical response (as published); tailored broadcast/voice voicing — steep LF
       rolloff (curve drawn from ~36 Hz @ −29.6 dB, −6.3 dB @ 79 Hz), low-mid bump ~+1.6 dB @ 157 Hz,
       slight dip −1.4 dB @ 287 Hz, flat mids (~0 dB @ 1 kHz), broad HF presence lift peaking
       ~+4.2 dB @ 6.6 kHz, steep HF rolloff (−9.5 dB @ 18 kHz, curve end −21.2 dB @ 20 kHz)
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--typical.csv]
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, red --target-color)"
   date: 2026-07-09
   result: >

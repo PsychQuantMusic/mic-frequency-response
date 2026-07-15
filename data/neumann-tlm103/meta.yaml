@@ -31,8 +31,13 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: vector-path-extraction
+    reproduction_status: vector-source-recorded
+    formal_point_count: 28
+    formal_frequency_span_hz: [20.142, 19651.995]
+    verification_relation: current-csv-directly-verified
     condition: "0deg free-field on-axis response as published (cardioid; nominal solid curve, excludes dashed tolerance band; presence lift ~+3.9 dB @ 6-13 kHz)"
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay_verify.py --interpolated vs rendered official chart (--target-color 255,0,0) + independent exact-bezier cross-check"
   date: 2026-07-09
   result: >

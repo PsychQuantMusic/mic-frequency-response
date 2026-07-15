@@ -36,10 +36,18 @@ curves:
   - file: frequency-response--typical.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 74
+    formal_frequency_span_hz: [54.48, 15470.368]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: "typical on-axis response, 0.6 m (2 ft) far-field source distance (as published; solid curve)"
   - file: frequency-response--proximity-3mm.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 59
+    formal_frequency_span_hz: [54.802, 1204.109]
+    verification_relation: current-csv-directly-verified
     condition: >
       close-mic proximity response (DASHED "3mm" curve; proximity bass boost peak +12.2dB @ 203Hz,
       converging with the far-field 0.6m curve at ~1204Hz). Distinct dashed portion as drawn
@@ -48,6 +56,10 @@ curves:
   - file: frequency-response--proximity-25mm.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 43
+    formal_frequency_span_hz: [50.758, 891.382]
+    verification_relation: current-csv-directly-verified
     condition: >
       close-mic proximity response (DASHED "25mm" curve; proximity bass boost peak +8.0dB @ 170Hz,
       converging with the far-field 0.6m curve at ~891Hz). Distinct dashed portion as drawn
@@ -56,18 +68,34 @@ curves:
   - file: frequency-response--proximity-51mm.csv
     data_origin: official-published-curve
     digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 43
+    formal_frequency_span_hz: [50.758, 712.448]
+    verification_relation: current-csv-directly-verified
     condition: >
       close-mic proximity response (DASHED "51mm" curve; proximity bass boost peak +4.2dB @ 179Hz,
       converging with the far-field 0.6m curve at ~712Hz). Distinct dashed portion as drawn
       on the chart (#16); above ~712Hz the response = the far-field typical. Solid-mask +
       --max-jump 2 isolation. 0.6m cross-check median 0.000 dB.
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves:
+    - frequency-response--typical.csv
+    - frequency-response--proximity-3mm.csv
+    - frequency-response--proximity-25mm.csv
+    - frequency-response--proximity-51mm.csv
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, window 10)"
   date: 2026-07-09
   result: >
     point-wise: 80 points, 77 matched, median |dev| 0.031 dB, max 0.23 dB, 0 gaps, 3 ambiguous.
     interpolated (逐欄沿 log-f 內插折線): 947 columns measured, median 0.015 dB, max 0.23 dB,
     0 gaps, 36 ambiguous (= vertical-gridline columns, 黑色同色網格；預期).
+    Issue #16 近接曲線驗證：proximity-3mm、25mm、51mm 均已個別進行 overlay 覆核；
+    各曲線內插 median |dev| 約 0.022 dB。另行重描的 0.6 m 曲線與 typical
+    交叉檢查，median |dev| 0.000 dB。
   note: >
     綠色 overlay 標記視覺確認完全貼合 0.6 m 實線全程（bass rolloff −12.9 dB @ ~54 Hz、
     收斂至 ~−1 dB plateau @ 400–700 Hz、過 0 dB @ ~970 Hz、presence peak +3.4 dB @ ~4.8 kHz、
