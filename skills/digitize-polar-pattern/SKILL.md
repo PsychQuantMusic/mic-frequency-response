@@ -1,65 +1,134 @@
 ---
 name: digitize-polar-pattern
 description: >
-  Digitize a microphone polar pattern (directivity) chart into CSVs of (angle_deg, level_db) —
-  one CSV per frequency — and ingest into the mic-frequency-response database. Use this skill
-  whenever the user wants to extract data from a polar plot / directivity plot / 指向性圖 /
-  極座標圖 on a mic datasheet, add polar pattern data for a microphone, or asks about the
-  "circular chart" on a spec sheet — even when they only say "把 SM58 的指向性圖也拓進來"
-  or "read the polar plot".
+  Use when adding, extracting, or verifying microphone polar-pattern or directivity data from
+  manufacturer numeric files or official vector and raster charts, especially for angular
+  calibration, curve-frequency identity, reproducible tracing, provenance, and ingestion into
+  the mic-frequency-response database.
 ---
 
 # Digitize Polar Pattern
 
-把麥克風的 **polar pattern（極座標指向性圖）**還原成 `(angle_deg, level_db)` 數據，一個頻率一個 CSV。
+把原廠發布的極座標數值，或官方 polar pattern 中可重現解析的曲線，轉成 `(angle_deg, level_db)` CSV；一個頻率一個檔案。
 
-與 `digitize-frequency-response` 共用「找官方圖 → AI 判讀 → 入庫」骨架，但**座標系不同**：
-角度 θ 環繞、半徑 = dB（外圈 0dB、往圓心遞減，廠商圖幾乎都是 5dB/格線性）。
+## 收錄契約
 
-## 讀圖步驟
+每條曲線只能使用：
 
-1. **取得官方 polar 圖**（同 FR skill 第一步；通常與頻響圖在同一張 datasheet）。高解析 crop + 放大。
-2. **讀懂圖的慣例**（每張圖必核對，不假設）：
-   - **0°（on-axis）在哪**：Shure 慣例 0° 在下、180° 在上；Audio-Technica 0° 在上。看角度標籤。
-   - **半徑刻度**：外圈通常 0dB，內圈 -5/-10/-15/-20…（找 `SCALE IS 5 DECIBELS PER DIVISION` 類的說明）。核對圈距**等距**（= 線性半徑）。
-   - **曲線 ↔ 頻率對應**：看 LEGEND 的線型（實線/虛線/點線/點虛線）。
-3. **對稱性判斷**：麥克風繞主軸旋轉對稱 → 發表圖左右鏡像時，**記錄 0–180° 半平面即完整**（這不是編造，是圖的資訊量本來如此）。若圖明顯不對稱，兩側都讀（0–360）。
-4. **沿角度取樣**：30° 步長（0,30,…,180）為基準；後瓣/null 附近形狀變化大可加密至 15°。逐點讀曲線半徑對應的 dB。
-5. **誠實標記**：精度 ±1.5~2 dB（小圖多曲線交疊，比 FR 判讀粗）；達圖表下限的 null 記下限值並在 meta 註明（如「實際 ≤ -25」）；線型難分處寧可標注不確定。
+| `data_origin` | `digitization_method` | 資料來源 |
+|---|---|---|
+| `manufacturer-numeric` | `manufacturer-values` | 原廠直接發布的角度／dB 數值 |
+| `official-published-curve` | `vector-path-extraction` | 官方向量圖中可識別的 polar path |
+| `official-published-curve` | `seeded-pixel-trace` | 官方點陣圖中可重現且可穩定分離的曲線 |
 
-## 產出 + 入庫
+人工或 AI 沿角度目測讀值是 manual estimate，不得進正式 `data/`。現有座標轉換與 overlay 工具本身不是 extractor；如果沒有可重現的 curve trace，就不能入庫。
 
-CSV（一頻率一檔）：`data/<brand>-<model>/polar-pattern--<freq>hz.csv`
+## Workflow
+
+### 1. 取得官方來源並辨識圖表
+
+從原廠產品頁、規格書、使用手冊或官方資產取得 polar 圖，並記錄 URL、頁碼／圖名及取得日期。原圖只放 scratch 或 repo 外，不 commit。
+
+每張圖都要從標籤與 LEGEND 確認：
+
+- 0° on-axis 在哪個畫面方向，以及角度增加方向。
+- 外圈與內圈的 dB 值；不要假設一定是 5 dB／格。
+- 每條線型／顏色對應的頻率。
+- 圖是完整 0–360°、左右半圖，或其他佈局。
+
+Overlay 只能驗證點是否貼線，不能證明曲線對應哪個頻率。若頻率身分無法從圖例與可追蹤的線段確認，停止入庫。
+
+### 2. 選擇可重現方法
+
+#### 原廠數值
+
+忠實保留原廠角度、dB、頻率與基準定義；不要自行增加角度取樣點。
+
+```yaml
+data_origin: manufacturer-numeric
+digitization_method: manufacturer-values
+```
+
+#### 官方向量路徑
+
+只有在 SVG／PDF 內能以 path、style、group 或其他可重現識別方式對應到單一頻率時才解析。套用所有 transform，但不修改 geometry；排除網格、標籤與其他頻率曲線。以渲染 overlay 或第二條 path parser 交叉驗證。
+
+```yaml
+data_origin: official-published-curve
+digitization_method: vector-path-extraction
+```
+
+#### 官方點陣曲線
+
+只有在現有或另行實作的 extractor 能以固定輸入、校準、種子與參數重跑出同一條曲線時才可使用。必要條件：
+
+1. 圓心、兩個已知 dB 圈半徑、0° 畫面方向與旋向可由圖表標籤校準。
+2. 目標頻率曲線可由顏色、線型與連續性穩定隔離。
+3. Trace 不會在交疊處任意跳到其他頻率或網格。
+4. 全路徑能以 overlay 或獨立像素量測驗證。
+
+```yaml
+data_origin: official-published-curve
+digitization_method: seeded-pixel-trace
+```
+
+`digitizer/polar-coords.js` 的 `makePolarTransform(calib)` 只提供 `(angle_deg, level_db) ↔ (px, py)` 座標轉換；`scripts/overlay_verify.py --polar` 只負責驗證。兩者不會自動把人工目測點變成可重現 trace。
+
+目前工具若不能穩定抽出目標 polar 曲線，請明確回報「無可重現 trace，不能入庫」，不要改用 15°／30° 人工取樣。
+
+### 3. 不補造未觀測資料
+
+- 官方圖只提供 0–180° 時，只保存實際發布的角度範圍，不鏡射成 0–360° 新資料點；在 metadata 記錄圖表慣例。
+- 不在角度間插值建立新觀測點，不為後瓣或 null 補形狀，也不外推。
+- 曲線碰到圖表 dB 下限時，不能把圖表下限當成精確值。現行兩欄 CSV 無法表示 censored value，該不確定區段不要寫成精確資料。
+- 多曲線交疊處若無法穩定分離，保留 gap 或整條不入庫；不能以肉眼猜線。
+
+### 4. Overlay 驗證
+
+執行 `scripts/overlay_verify.py --polar`，使用圓心、兩個 dB 圈、`--zero-angle-deg` 與旋向校準：
+
+- 在來源圖上重繪 trace，逐段檢查是否貼住正確頻率曲線。
+- 記錄 median、max、gap 與 ambiguous；有歧義不等於通過。
+- 多曲線圖的 nearest-pixel 統計可能匹配鄰線或網格，必須以獨立的曲線隔離與頻率身分證據覆核。
+- 把方法、參數與結果寫入 `polar_verification`。
+
+### 5. 產出與 metadata
 
 ```csv
 angle_deg,level_db
 0,0
 30,-0.5
-...
-180,-14
+60,-3.2
 ```
 
-`meta.yaml` 的 `curves[]` 加條目（`kind: polar-pattern`；FR 條目不加 kind = 缺省向後相容），
-並加 `polar_read_note` 記取樣密度/精度/對稱慣例/0° 方向。
+```yaml
+source:
+  url: https://manufacturer.example/manual.pdf
+  page: 8
+  chart: "Polar Pattern, 1 kHz"
+  retrieved: 2026-07-15
+curves:
+  - file: polar-pattern--1000hz.csv
+    kind: polar-pattern
+    condition: "1 kHz as published; 0 degrees on-axis"
+    data_origin: official-published-curve
+    digitization_method: vector-path-extraction
+polar_read_note: "record angular domain, zero direction, rotation, and dB scale"
+polar_verification:
+  method: "overlay_verify.py --polar plus independent path identity check"
+  result: "record points, median/max deviation, gaps, and ambiguities"
+```
 
-版權紀律同 FR skill：**原圖不進 repo**，只記來源。
+`anchors.yaml` 只保存已收錄 CSV 的回歸快照，不是原廠獨立證據。
 
-## 座標工具
+## Fail-closed 檢查
 
-`digitizer/polar-coords.js` 的 `makePolarTransform(calib)` 提供 `(angle_deg, level_db) ↔ (px, py)` 雙向轉換
-（校準 = 圓心 + 兩個已知 dB 圈半徑 + 0° 畫面方向 + 旋轉方向），供未來 pixel-trace 極座標版或
-overlay 驗證使用。
+下列任一條成立，就不要建立正式 polar CSV：
 
-## Overlay 自我驗證（強制，#7）
+- 沒有官方來源。
+- 曲線與頻率、0° 方向或 dB 圈刻度無法確認。
+- 只能人工／AI 逐角度目測。
+- 向量 path 或點陣 trace 無法以固定方法重現。
+- 必須鏡射、插值、補 null 或外推才能形成完整曲線。
 
-判讀完成後跑 `scripts/overlay_verify.py --polar`（校準 = 圓心 + 兩個已知 dB 圈半徑 + `--zero-angle-deg` + 旋向；
-圓心/圈半徑可用「灰帶 bbox + 對向射線掃圈交點」程式測量），把 CSV 畫回原圖：
-
-- **視覺為主**：`Read` overlay（多曲線用 `--marker-color` 亮色鏈接疊圖，luminance > 135），目檢標記貼曲線。
-- **數字為輔**：量化在多曲線圖有 match 歧義（window 內鄰曲線/黑網格圈誤匹配）——solid 曲線較可靠；
-  outlier 需量化與目測**一致**才修，僅量化超標視為歧義。輻條角度取樣已內建 ±3° 迴避。
-- 修正後重驗，`median/max` 記進 meta 的 `polar_verification`。
-
-## 已知限制（誠實邊界）
-
-- 多曲線交疊處（尤其低頻近全向時）線型辨識易錯，讀值前先沿 LEGEND 線型從無交疊區段追進交疊區。
+停止時記錄無法解析的原因，等待更好的官方數值、向量來源或可靠 extractor。

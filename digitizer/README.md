@@ -1,6 +1,8 @@
-# digitizer/ — 頻響圖描點工具
+# digitizer/ — 頻響圖數位化工具
 
-把頻率響應圖片轉成 `(freq_hz, level_db)` 數據點，匯出 CSV。純前端、無 build step、零 npm 依賴。
+把官方頻率響應圖表以可重現的像素追蹤轉成 `(freq_hz, level_db)` 資料點，匯出 CSV。純前端、無 build step、零 npm 依賴。
+
+這個工具只負責 deterministic trace；它不會讓任意圖片自動符合正式資料庫的收錄門檻。正式入庫仍須符合 [`data/README.md`](../data/README.md) 的 provenance、驗證與頻率範圍契約。
 
 ## 跑起來
 
@@ -17,12 +19,23 @@ python3 -m http.server 8000
 ## 使用步驟
 
 1. **載入圖片** — 選一張頻響圖（原圖留 local，別 commit 進 repo）。
-2. **座標校準（4 點）** — X 軸填兩個已知頻率（如 20 / 20000 Hz），各按「在圖上點」點對應的網格線；Y 軸填兩個已知 dB（如 0 / -40），同樣點。
+2. **座標校準（4 點）** — X 軸填兩個從軸標籤實讀的已知頻率（如 20 / 20000 Hz），各按「在圖上點」點對應的網格線；Y 軸填兩個已知 dB（如 0 / -40），同樣點。用第三條標籤線覆核校準，不能只靠圖形間距猜標籤值。
 3. **取色** — 按「點曲線取色」，在曲線上點一下（取得追蹤的目標顏色）。
 4. **追蹤** — 調顏色容差 → 按「追蹤曲線」；綠點疊示還原結果，檢查貼合度。
-5. **匯出** — 按「下載 CSV」，存到 `data/<brand>-<model>/frequency-response--<condition>.csv`。
+5. **匯出** — 按「下載 CSV」。正式入庫前，只保留原廠 `frequency_range_hz` 內且 trace 實際存在的點；不得為邊界補點、填補 gap、插值或外推。
 
 座標假設：X 軸對數（頻率 Hz），Y 軸線性（dB）。
+
+手動校準與選種子是可重現 trace 的設定，不是人工估讀資料點。若目標曲線無法由顏色、線型或連續性穩定分離，請停止；人工或 AI 逐點目測不是正式入庫的 fallback。
+
+正式曲線的 `meta.yaml` 必須標示：
+
+```yaml
+data_origin: official-published-curve
+digitization_method: seeded-pixel-trace
+```
+
+若來源是原廠直接提供的數值，請使用 `manufacturer-numeric` + `manufacturer-values`，不必經過本工具。若來源是可解析的官方向量路徑，請使用 `official-published-curve` + `vector-path-extraction`。
 
 ## 架構（引擎與 canvas 解耦）
 
@@ -40,8 +53,10 @@ python3 -m http.server 8000
 
 ```bash
 cd digitizer
-node --test        # 引擎：coords + trace（含合成圖回歸）+ csv；資料層：data-schema（格式）+ data-anchors（值回歸，#18）
+node --test        # 引擎：coords + trace（含合成圖回歸）+ csv；資料層：schema/provenance/range + anchors 回歸（#18）
 ```
+
+`data-anchors` 只比對已收錄 CSV 的 regression snapshot，不能證明資料來自原廠，也不能取代 overlay／向量驗證。
 
 ## 已定案的設計決策
 

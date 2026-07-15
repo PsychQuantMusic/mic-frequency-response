@@ -32,6 +32,8 @@ method: >
   反證校準無整軸偏移。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis response (12\" or more on axis, solid line, as published)"
 verification:
   method: "overlay vs original chart, interpolated per-column (scripts/overlay_verify.py --interpolated --target-color 96,137,162, #14)"

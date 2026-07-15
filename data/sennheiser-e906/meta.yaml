@@ -31,6 +31,8 @@ method: >
   確認校準正確。以 --simplify 0.05 dB 感知無損降採樣（195 點）。best-effort ±0.5 dB。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       on-axis (0°, 1 m), MODERATE / flat presence-switch position (middle switch icon,
       the "(0°, 1 m)" reference curve). Relative to -50 dBV gridline (0 dB).

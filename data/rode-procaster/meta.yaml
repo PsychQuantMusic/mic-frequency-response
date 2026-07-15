@@ -27,6 +27,8 @@ method: >
   over 931 measured cols，0 gaps、0 ambiguous（--target-color 紅，網格天然排除）。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       on-axis typical response (as published); tailored broadcast/voice voicing — steep LF
       rolloff (curve drawn from ~36 Hz @ −29.6 dB, −6.3 dB @ 79 Hz), low-mid bump ~+1.6 dB @ 157 Hz,

@@ -34,6 +34,8 @@ method: >
   Y axis is labeled "dBm" (relative response), so values are relative dB.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis response (as published)"
 verification:
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated --target-color 53,53,148, #14)"

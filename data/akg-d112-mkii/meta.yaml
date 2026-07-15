@@ -24,8 +24,12 @@ method: >
   viterbi 種子點 (1400,2403) 置於實線且遠離虛線（>600 Hz 僅實線存在），連續性使 trace 全程貼實線。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis free-field response (solid curve, as published; NOT the dashed 10 cm close-mic curve)"
   - file: frequency-response--proximity-10cm.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       close-mic proximity response (DASHED "10 cm" red curve; strong kick-mic proximity
       bass boost peaking ~+10 dB @ ~104 Hz, converging with the free-field solid ~360 Hz).

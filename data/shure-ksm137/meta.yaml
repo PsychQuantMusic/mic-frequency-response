@@ -24,8 +24,12 @@ method: >
   switch curves are a separate chart on p.5 and were not used).
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis free-field response at 60 cm; LF filter FLAT, pad off (as published)"
   - file: frequency-response--proximity-15cm.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       close-mic proximity response (DASHED "15 cm" curve; modest proximity bass boost
       +3.4 dB @ 50 Hz, converging with the far-field 60 cm curve near ~250 Hz).

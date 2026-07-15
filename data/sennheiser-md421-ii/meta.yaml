@@ -25,6 +25,8 @@ method: >
   以 --simplify 0.05 dB 感知無損降採樣（192 點）。best-effort ±0.5 dB。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       on-axis (0°) typical response, bass-control switch in position "M" (music / full bass,
       least low-frequency attenuation); relative to −50 dBv gridline (0 dB)

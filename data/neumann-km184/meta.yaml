@@ -35,6 +35,8 @@ method: >
   characteristic presence lift peaking ~+2.1 dB at ~8.5 kHz, HF rolloff to ~-1.2 dB at 20 kHz.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: vector-path-extraction
     condition: "0deg free-field on-axis response as published (cardioid; nominal solid curve, excludes dashed tolerance band; presence lift ~+2.1 dB @ ~8.5 kHz)"
 verification:
   method: "overlay_verify.py --interpolated vs rendered official chart (--target-color 255,0,0) + independent exact-bezier cross-check"

@@ -26,6 +26,8 @@ method: >
   確認整軸未偏移。曲線描繪範圍 40–20,000 Hz（cyan x-extent 311→1794 = 40.3→19,940 Hz），與官方頻響範圍一致。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "on-axis (0°, free-field) typical response, relative to flat plateau"
 polar_note: >
   官方 p.2 有 polar pattern 圖（8 條頻率曲線 125/250/500/1000/2000/4000/8000/16000 Hz 的左右半分圖，

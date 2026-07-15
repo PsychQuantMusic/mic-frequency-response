@@ -30,6 +30,8 @@ switch_setting: >
   not alter frequency response.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "flat switch position, full-range on-axis at 1 m (as published)"
 verification:
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated), redraw-fidelity check"

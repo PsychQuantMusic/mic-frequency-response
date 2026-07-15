@@ -27,6 +27,8 @@ method: >
   9 kHz dip、~11 kHz 次峰、20 kHz rolloff）與 AT4040 發表特性一致，反證校準無整軸偏移。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis response (12\" or more on axis, solid line, as published)"
 verification:
   method: "overlay vs original chart, interpolated per-column (scripts/overlay_verify.py --interpolated --target-color 97,137,162, #14)"

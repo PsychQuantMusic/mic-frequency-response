@@ -32,12 +32,16 @@ method: >
   spec, ruling out a whole-axis decade shift (a shift would place the peak at ~900 Hz or ~90 kHz).
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       far-field on-axis response as published (SOLID "60.6 mm / 2 ft" curve; supercardioid,
       phantom-powered electret condenser). Excludes the DASHED "1 cm (3/8 in.)" close-mic
       proximity-boost curve. Presence rise ~+4.8 dB @ ~9 kHz; HF rolloff to ~-7 dB @ ~19 kHz;
       electronic LF rolloff to ~-13 dB @ 50 Hz.
   - file: frequency-response--proximity-1cm.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       close-mic proximity response (DASHED "1 cm / 3/8 in." curve; proximity-effect bass
       boost, ~+8.1 dB @ ~116 Hz, converging with the far-field curve near ~700 Hz).

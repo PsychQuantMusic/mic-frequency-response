@@ -29,6 +29,8 @@ method: >
   official PDF (pdftoppm), FR-plot-area crop.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "Cardioid on-axis (0deg free-field) FR, no bass-cut filter, 0 dB pre-att — as published. Gentle LF rolloff (~-8 dB @ 30 Hz), slight low-mid lift (~+1.5 dB @ 100-300 Hz), flat mids, shallow ~1.5 kHz dip (~-1.5 dB), broad HF presence peak (~+4.7 dB @ ~12 kHz), HF rolloff to ~-2.4 dB @ ~20 kHz"
 verification:
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, red target-color)"

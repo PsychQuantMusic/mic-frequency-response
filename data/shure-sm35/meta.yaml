@@ -28,8 +28,12 @@ method: >
   solid 為連續實線、dashed 為虛線（有 gap），viterbi 連續性天然偏好 solid、不會誤跳 dashed。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis response, 0.6 m (2 ft) from sound source (as published, solid curve)"
   - file: frequency-response--proximity-1cm.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       close-mic proximity response (DASHED "1 cm" curve; proximity bass boost ~+15 dB plateau
       130-240 Hz, converging with the far-field 0.6m curve at ~2.4 kHz). Distinct dashed portion

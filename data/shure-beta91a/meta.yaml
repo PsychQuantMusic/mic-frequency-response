@@ -32,6 +32,8 @@ method: >
   correct (rules out a log-axis whole-decade factor shift).
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis response, Contour Switch = FLAT (solid curve as published)"
 notes: >
   Only the FLAT/typical (solid) curve is digitized here. The chart's second curve

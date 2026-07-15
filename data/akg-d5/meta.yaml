@@ -26,6 +26,8 @@ method: >
   --simplify 0.05 dB 感知無損降採樣（1026 → 362 點）。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis frequency response, solid curve as published (far-field)"
 verification:
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"

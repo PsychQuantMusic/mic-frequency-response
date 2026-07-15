@@ -6,7 +6,7 @@ frequency_range_hz: [40, 15000]
 source:
   url: https://pubs.shure.com/view/guide/SM57/en-US.pdf
   page: 5
-  chart: "Typical SM57 Frequency Response + Polar Patterns"
+  chart: "Typical SM57 Frequency Response"
   retrieved: 2026-07-08
 digitized_by: che (via Claude)
 digitized_on: 2026-07-09  # FR regenerated (#14); original 2026-07-08
@@ -16,42 +16,15 @@ method: >
   沿內插折線逐欄比對）：median 0.014 / max 0.25 dB over 1292 measured cols（87 ambiguous=垂直網格欄），零 gap（黑網格；曲線與 0dB 線融合段有輕微 merge bias）。
   ⚠ 首版再生曾將頻率軸標籤指派錯一倍（81px 線讀作 10Hz、實為 20Hz——log 型態擬合只給
   decade 間距不給值），經跨模型 verify 以舊獨立判讀 + 6kHz presence peak 特徵抓出並修正。
-  以下為原 AI 判讀方法紀錄（historical）。
-  polar 資料維持原判讀密度（shape-summary 級，非重繪級——加密為 #14 Residue）。
-  AI 視覺判讀官方 user-guide 頻響圖（p.5）。原圖含同色（黑）網格線橫跨每一欄，
-  pixel-trace 不適用（見 #3）。以 column-scan（widest dark run）作計算第一手，
-  與目視交叉核對，並在低頻/陡降段以放大目讀修正 column-scan 被網格線污染之點。
-  best-effort ±0.5 dB（陡降段與 6-12kHz bump 區更大）。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis response (40-15,000 Hz, as published; curve visibly extends to ~16 kHz)"
-  # kind 缺省 = frequency-response（向後相容）
-  - { file: polar-pattern--125hz.csv,  kind: polar-pattern, condition: "125 Hz (p.5 left polar chart, solid)" }
-  - { file: polar-pattern--500hz.csv,  kind: polar-pattern, condition: "500 Hz (left chart, dotted)" }
-  - { file: polar-pattern--1000hz.csv, kind: polar-pattern, condition: "1000 Hz (left chart, dashed)" }
-  - { file: polar-pattern--2000hz.csv, kind: polar-pattern, condition: "2000 Hz (right polar chart, solid)" }
-  - { file: polar-pattern--4000hz.csv, kind: polar-pattern, condition: "4000 Hz (right chart, dotted; pronounced rear lobe at 180°)" }
-  - { file: polar-pattern--8000hz.csv, kind: polar-pattern, condition: "8000 Hz (right chart, dashed; rear lobe at 180°)" }
-polar_read_note: >
-  AI 視覺判讀，30° 取樣、精度 ±1.5~2 dB（小圖多曲線）。0° = on-axis（Shure 慣例圖底），
-  180° = rear（圖頂）；發表圖左右對稱，記錄 0–180° 半平面即完整（外圈 0dB、5dB/圈、圓心 -25dB）。
-  高頻圖（2k/4k/8k）後方有 lobe（4kHz 於 180° 最突出、達 ~-3dB）；rear-lobe 角度多曲線交疊，
-  overlay 量化在該處 gap，以視覺 overlay 為主判。
 verification:
-  method: "overlay vs original chart (scripts/overlay_verify.py, #6)"
-  date: 2026-07-08
-  result: "FR: median |dev| 0.094 dB, max 1.189 dB (35 pts). 僅 1 點(7.2kHz notch)超 ±1.0，位於 7/8/9kHz 密集網格區、視覺在 notch 上（量化歧義）。"
-  note: >
-    首輪 column-scan 在 63/80/100/125/160Hz（近 -5/-10 網格線）與 13kHz(近垂直陡降段)被污染，
-    依放大目讀 + overlay 回饋修正後 median 由 0.167→0.094。
-polar_verification:
-  method: "polar overlay vs original charts (scripts/overlay_verify.py --polar, #7)"
-  date: 2026-07-08
-  result: >
-    左圖 (125/500/1000 Hz): median |dev| 0.88/0.68/0.43 dB, max ≤1.97 dB。
-    右圖 (2000/4000/8000 Hz): 前段(0-90°)matched median 0.39/0.66/0.34 dB；後方 lobe 角度
-    (120-180°)多曲線交疊致 overlay gap(3/7)，以視覺 overlay 確認標記貼合對應線型曲線。
-    全部 within declared ±2 dB。
+  method: "interpolated overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
+  date: 2026-07-09
+  result: "median |dev| 0.014 dB, max 0.25 dB over 1292 measured columns; zero gaps, 87 ambiguous columns"
 license_note: >
-  數據為事實資料（frequency→dB / angle→dB），從公開官方 user guide 判讀，非原圖之重製。
+  數據為事實資料（frequency→dB），從公開官方 user guide 判讀，非原圖之重製。
   原圖（PDF/PNG）未收錄進 repo。

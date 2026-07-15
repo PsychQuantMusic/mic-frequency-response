@@ -23,20 +23,28 @@ method: >
   網格間距 20.75 px/dB 全圖一致）。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis response, 606 mm (2 ft) source distance (as published; solid curve)"
   - file: frequency-response--proximity-3mm.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       close-mic proximity response (line-style "3mm" curve; proximity bass boost peak +12.2dB @ 181Hz,
       converging with the far-field 606mm curve at ~1078Hz). Distinct portion as drawn on the
       chart (#16); above ~1078Hz the response = the far-field typical. Peel isolation (erase
       solid+gridlines+neighbor corridor) then viterbi trace. 2ft cross-check median 0.035 dB.
   - file: frequency-response--proximity-25mm.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       close-mic proximity response (line-style "25mm" curve; proximity bass boost peak +8.5dB @ 182Hz,
       converging with the far-field 606mm curve at ~1042Hz). Distinct portion as drawn on the
       chart (#16); above ~1042Hz the response = the far-field typical. Peel isolation (erase
       solid+gridlines+neighbor corridor) then viterbi trace. 2ft cross-check median 0.035 dB.
   - file: frequency-response--proximity-51mm.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       close-mic proximity response (line-style "51mm" curve; proximity bass boost peak +5.3dB @ 196Hz,
       converging with the far-field 606mm curve at ~863Hz). Distinct portion as drawn on the

@@ -45,6 +45,8 @@ method: >
   far-field solid curve rolls off earlier -- ~-7 dB already at 50 Hz.)
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "typical on-axis (0deg) response, dual-voicing switch in GENERAL/FLAT position (right-hand switch position; solid far-field AVERAGE RESPONSE line, as published). NOT the kick-drum voicing; NOT the 1 cm close/proximity line."
 verification:
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, window 12 px ~= +/-1.3 dB)"

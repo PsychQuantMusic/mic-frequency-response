@@ -12,4 +12,4 @@ curves:
       - { freq_hz: 100, expected_db: -9.98, tol_db: 0.5 }
       - { freq_hz: 1000, expected_db: 0.61, tol_db: 0.5 }
       - { freq_hz: 7147.3, expected_db: 4.63, tol_db: 0.5 }
-      - { freq_hz: 18014.4, expected_db: -5.49, tol_db: 0.5 }
+      - { freq_hz: 17811.2, expected_db: -4.94, tol_db: 0.5 }

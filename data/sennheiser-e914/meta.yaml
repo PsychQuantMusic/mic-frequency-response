@@ -38,6 +38,8 @@ calibration:
   y_axis: "linear dB; 0 dB @ px262, -20 dB @ px534 (grid lines +10/0/-10/-20/-30/-40 at px 126/262/398/534/670/804, 136 px per 10 dB). Axis labels 0/-10/-20 read directly."
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: >
       on-axis (0deg) free-field frontal response, FLAT setting (switchable low-cut / bass roll-off
       filter OFF; sensitivity pad does not affect response shape). Relative to 0 dB midband plateau.
@@ -68,5 +70,5 @@ verification:
     - "main presence peak ~+5.5 dB at ~11.8 kHz (published: ~+5 dB @ 12 kHz)"
     - "high-frequency roll-off after the peak to ~-4 dB at 20 kHz"
 license_note: >
-  数据為事實資料（frequency->dB），從公開官方 Sennheiser 產品手冊（instruction manual, p.196）
+  資料為事實對應（frequency→dB），從公開官方 Sennheiser 產品手冊（instruction manual, p.196）
   判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo，只記來源 URL + 頁碼。

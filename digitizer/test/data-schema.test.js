@@ -13,6 +13,16 @@ const SCHEMAS = {
   'polar-pattern--': { header: 'angle_deg,level_db', firstCol: 'angle_deg' },
 };
 
+const ALLOWED_ORIGINS = new Set([
+  'manufacturer-numeric',
+  'official-published-curve',
+]);
+
+const ALLOWED_METHODS = {
+  'manufacturer-numeric': new Set(['manufacturer-values']),
+  'official-published-curve': new Set(['vector-path-extraction', 'seeded-pixel-trace']),
+};
+
 function micDirs() {
   return readdirSync(DATA_DIR).filter((d) => {
     const p = join(DATA_DIR, d);
@@ -43,16 +53,24 @@ function parseCurves(metaText) {
       const flow = entryStart[1];
       const fFile = /file:\s*"?([^,}"\s]+)"?/.exec(flow);
       const fKind = /kind:\s*"?([^,}"\s]+)"?/.exec(flow);
+      const fOrigin = /data_origin:\s*"?([^,}"\s]+)"?/.exec(flow);
+      const fMethod = /digitization_method:\s*"?([^,}"\s]+)"?/.exec(flow);
       if (fFile) current.file = fFile[1];
       if (fKind) current.kind = fKind[1];
+      if (fOrigin) current.dataOrigin = fOrigin[1];
+      if (fMethod) current.digitizationMethod = fMethod[1];
       continue;
     }
     if (current) {
       // block style 續行
       const bFile = /^\s+file:\s*"?([^"\s]+)"?/.exec(line);
       const bKind = /^\s+kind:\s*"?([^"\s]+)"?/.exec(line);
+      const bOrigin = /^\s+data_origin:\s*"?([^"\s]+)"?/.exec(line);
+      const bMethod = /^\s+digitization_method:\s*"?([^"\s]+)"?/.exec(line);
       if (bFile) current.file = bFile[1];
       if (bKind) current.kind = bKind[1];
+      if (bOrigin) current.dataOrigin = bOrigin[1];
+      if (bMethod) current.digitizationMethod = bMethod[1];
     }
   }
   if (current) curves.push(current);
@@ -64,6 +82,7 @@ for (const dir of micDirs()) {
   const csvFiles = readdirSync(dirPath).filter((f) => f.endsWith('.csv'));
   const metaText = readFileSync(join(dirPath, 'meta.yaml'), 'utf8');
   const curves = parseCurves(metaText);
+  const rangeMatch = /^frequency_range_hz:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/m.exec(metaText);
 
   test(`${dir}: every CSV has a known schema prefix and valid content`, () => {
     assert.ok(csvFiles.length > 0, '資料夾至少要有一個 CSV');
@@ -84,6 +103,15 @@ for (const dir of micDirs()) {
         const b = Number(parts[1]);
         assert.ok(Number.isFinite(a) && Number.isFinite(b), `${f}:${i + 1} 需為 finite 數值`);
         assert.ok(a > prev, `${f}:${i + 1} 第一欄需嚴格遞增 (${a} ≤ ${prev})`);
+        if (f.startsWith('frequency-response--')) {
+          assert.ok(rangeMatch, 'frequency-response 資料必須宣告 frequency_range_hz');
+          const minHz = Number(rangeMatch[1]);
+          const maxHz = Number(rangeMatch[2]);
+          assert.ok(
+            a >= minHz && a <= maxHz,
+            `${f}:${i + 1} 的 ${a} Hz 超出原廠標示範圍 ${minHz}–${maxHz} Hz`,
+          );
+        }
         prev = a;
       }
       assert.ok(lines.length >= 2, `${f}: 至少一個資料點`);
@@ -107,6 +135,31 @@ for (const dir of micDirs()) {
       } else if (c.file.startsWith('frequency-response--')) {
         assert.ok(c.kind === undefined || c.kind === 'frequency-response',
           `${c.file}: FR 檔 kind 應缺省或 frequency-response (got ${c.kind})`);
+      }
+    }
+  });
+
+  test(`${dir}: every published curve has approved provenance`, () => {
+    assert.match(metaText, /^source:\s*$/m, 'meta.yaml 必須有 source');
+    assert.match(metaText, /^\s+url:\s*https?:\/\//m, 'source.url 必須指向官方 HTTP(S) 來源');
+    assert.match(metaText, /^\s+retrieved:\s*\d{4}-\d{2}-\d{2}/m, 'source.retrieved 必須是日期');
+
+    for (const c of curves) {
+      assert.ok(c.dataOrigin, `${c.file}: 缺 data_origin`);
+      assert.ok(ALLOWED_ORIGINS.has(c.dataOrigin), `${c.file}: 不允許的 data_origin ${c.dataOrigin}`);
+      assert.ok(c.digitizationMethod, `${c.file}: 缺 digitization_method`);
+      assert.ok(
+        ALLOWED_METHODS[c.dataOrigin]?.has(c.digitizationMethod),
+        `${c.file}: ${c.dataOrigin} 不允許 digitization_method ${c.digitizationMethod}`,
+      );
+
+      if (c.dataOrigin === 'official-published-curve') {
+        const verificationKey = c.kind === 'polar-pattern' ? 'polar_verification' : 'verification';
+        assert.match(
+          metaText,
+          new RegExp(`^${verificationKey}:\\s*$`, 'm'),
+          `${c.file}: 官方圖表數位化資料必須有 ${verificationKey}`,
+        );
       }
     }
   });

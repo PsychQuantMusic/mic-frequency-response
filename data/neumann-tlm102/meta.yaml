@@ -33,6 +33,8 @@ method: >
   gentle LF slope to ~-12 dB at 20 Hz, HF rolloff to ~-7.6 dB at 20 kHz.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: vector-path-extraction
     condition: "0deg free-field on-axis response as published (cardioid; nominal solid curve, excludes dashed tolerance band; presence lift ~+3.5 dB peaking ~9-10 kHz)"
 verification:
   method: "overlay_verify.py --interpolated vs rendered official chart (--target-color 255,0,0) + independent exact-bezier cross-check"

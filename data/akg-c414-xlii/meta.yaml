@@ -5,8 +5,8 @@ polar_patterns: [omni, wide-cardioid, cardioid, hypercardioid, figure-8]  # 9 se
 frequency_range_hz: [20, 20000]
 source:
   url: https://www.akg.com/on/demandware.static/-/Sites-masterCatalog_Harman/default/dwbf37457b/pdfs/AKG_C414XLII_Polar_Patterns.pdf
-  page: "3 (Cardioid FR + polar); 1 (Omni polar); 5 (Figure-8 polar)"
-  chart: "C 414 XL II per-pattern Frequency Response + Polar Pattern"
+  page: 3
+  chart: "C 414 XL II Cardioid Frequency Response"
   retrieved: 2026-07-08
 digitized_by: che (via Claude)
 digitized_on: 2026-07-09  # FR regenerated (#14); original 2026-07-08
@@ -14,34 +14,15 @@ method: >
   【#14 再生 2026-07-09】FR 曲線以 seeded-viterbi trace 全解析度重新數位化並以
   --simplify 0.05 dB 感知無損降採樣（284 點）；重繪保真驗證（overlay --interpolated，
   沿內插折線逐欄比對）：median 0.003 / max 0.038 dB over 2030 measured cols（0 ambiguous），零 gap（--target-color 紅；Y 錨定經標籤文字仲裁修正：0dB@y354、13.88px/dB——原 AI 判讀錨定偏約 +0.9 dB，本次一併修正）。
-  以下為原 AI 判讀方法紀錄（historical）。
-  polar 資料維持原判讀密度（shape-summary 級，非重繪級——加密為 #14 Residue）。
-  AI 視覺判讀官方 XLII 專屬 polar/FR PDF（每頁一個指向：p1 Omni, p2 Wide-Cardioid, p3 Cardioid,
-  p4 Hypercardioid, p5 Figure-8）。FR 曲線為紅色，用 red-channel column-scan 精抽（原圖另有 green/blue/
-  dashed 為 bass-cut filter 40/80/160Hz，不取）。polar 為左右半分圖（左 125/250(green)+500/1000(red)、
-  右 2000/4000/8000(red)+16000(green)），0° 在下、外圈 0dB、5dB/圈；以 red-channel ray-scan 讀 500/1000Hz
-  nominal 曲線（每個指向的低頻代表形狀）。錨定 FR 0dB = 平坦區。best-effort：FR ±0.5 dB、polar ±1.5~2 dB。
 curves:
   - file: frequency-response--cardioid.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "Cardioid mode on-axis FR (0 dB pre-att, no bass-cut filter; XLII C12-like presence lift ~+3.5 dB @ 5-6 kHz)"
-  - { file: polar-pattern--cardioid-1khz.csv, kind: polar-pattern, condition: "Cardioid, 500/1000 Hz nominal (p.3 left chart, red)" }
-  - { file: polar-pattern--omni-1khz.csv,     kind: polar-pattern, condition: "Omnidirectional, 500/1000 Hz nominal (p.1 left chart, red)" }
-  - { file: polar-pattern--figure8-1khz.csv,  kind: polar-pattern, condition: "Figure-8, 500/1000 Hz nominal (p.5 left chart, red; 90° null ≤ -25 chart floor)" }
-polar_read_note: >
-  9-pattern 多指向電容。本批入 3 個 cardinal 指向的 500/1000Hz nominal polar（cardioid/omni/figure-8）。
-  0° = on-axis（AKG 圖底）、180° = rear（圖頂）；發表圖左右對稱，記 0–180° 半平面。5dB/圈、外圈 0dB。
-  omni 低頻近全向（0 ~ -3dB）、cardioid 90°≈-8/rear null -24、figure-8 90° 深 null（≤-25）。
-  **留待後續**：Wide-Cardioid(p2)、Hypercardioid(p4) 兩指向的 polar；各指向的高頻 polar 曲線
-  (2000/4000/8000/16000Hz，同圖右半，顯示 HF 收窄)；以及各指向專屬 FR（omni/figure-8 等，FR 隨指向變）。
-  全部在同一官方 XLII PDF，可依相同方法補齊。
 verification:
-  method: "overlay vs original chart (scripts/overlay_verify.py, #6/#7)"
-  date: 2026-07-08
-  result: >
-    FR (cardioid, 29 pts): median |dev| 0.036 dB, max 0.316 dB — red-channel scan 後全數 ±1.0 內。
-    Polar: cardioid median 0.077、omni 0.033、figure-8 0.178 dB（figure-8 60° 在 null 陡峭過渡區 dev 1.85，視覺貼合）。
-  note: >
-    各 polar 頁的 pole 位置略異（cardioid/omni pole y≈449、figure-8 y≈490），逐頁量測校正；ring scale 一致（0dB@r373, 5dB/58px）。
+  method: "interpolated overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
+  date: 2026-07-09
+  result: "median |dev| 0.003 dB, max 0.038 dB over 2030 measured columns; zero gaps, 0 ambiguous columns"
 license_note: >
-  數據為事實資料（frequency→dB / angle→dB），從公開官方 AKG XLII PDF 判讀，非原圖之重製。
+  數據為事實資料（frequency→dB），從公開官方 AKG XLII PDF 判讀，非原圖之重製。
   原圖（PDF/PNG）未收錄進 repo。

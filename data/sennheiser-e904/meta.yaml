@@ -21,6 +21,8 @@ method: >
   best-effort ±0.5 dB。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
     condition: "on-axis (0°, 1 m) typical response, relative to -50 dBV gridline (0 dB)"
 polar_note: >
   官方 p.2 有發表 polar pattern，為「8 條彩色曲線的左右半分圖」：左半（cyan）125/250/500/1000 Hz、
