@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+from dataclasses import dataclass
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -8,7 +11,15 @@ import unittest
 from unittest.mock import patch
 
 import source_assets_lib.storage as storage_module
-from source_assets_lib.network import RemoteHTTPError, URLPolicy
+import source_assets_lib.network as network_module
+from source_assets_lib.network import (
+    DownloadRequest,
+    PinnedHTTPSClient,
+    PinnedTLSConnector,
+    RemoteHTTPError,
+    URLPolicy,
+    resolve_public_addresses,
+)
 from source_assets_lib import (
     AtomicArtifactStore,
     ContractError,
@@ -55,6 +66,122 @@ def _policy(*, redactions=None):
     )
 
 
+def _pdf_request(
+    *,
+    url="https://pubs.shure.com/manual.pdf",
+    allowed_hosts=frozenset({"pubs.shure.com"}),
+    body=b"%PDF-1.7\n",
+    expected_size=None,
+    max_size=100 * 1024 * 1024,
+    expected_sha256=None,
+):
+    return DownloadRequest(
+        url=url,
+        allowed_hosts=allowed_hosts,
+        expected_media_type="application/pdf",
+        expected_size=len(body) if expected_size is None else expected_size,
+        max_size=max_size,
+        expected_sha256=hashlib.sha256(body).hexdigest()
+        if expected_sha256 is None
+        else expected_sha256,
+    )
+
+
+def _svg_request(
+    *,
+    body=b'<svg xmlns="http://www.w3.org/2000/svg"/>',
+    url="https://www.neumann.com/svg/Zz09PT0=",
+):
+    return DownloadRequest(
+        url=url,
+        allowed_hosts=frozenset({"www.neumann.com"}),
+        expected_media_type="image/svg+xml",
+        expected_size=len(body),
+        max_size=100 * 1024 * 1024,
+        expected_sha256=hashlib.sha256(body).hexdigest(),
+    )
+
+
+def _png_request(body):
+    return DownloadRequest(
+        url="https://pubs.shure.com/page.png",
+        allowed_hosts=frozenset({"pubs.shure.com"}),
+        expected_media_type="image/png",
+        expected_size=len(body),
+        max_size=100 * 1024 * 1024,
+        expected_sha256=hashlib.sha256(body).hexdigest(),
+    )
+
+
+@dataclass
+class ResponseFixture:
+    status: int = 200
+    headers: dict[str, str] | None = None
+    body: bytes = b"%PDF-1.7\n"
+    peer_ip: str = "93.184.216.34"
+    request_error: Exception | None = None
+    response_error: Exception | None = None
+    read_error: Exception | None = None
+
+    def __post_init__(self):
+        if self.headers is None:
+            self.headers = {}
+
+
+class _HTTPResponseFixture:
+    def __init__(self, fixture):
+        self.status = fixture.status
+        self._headers = {key.casefold(): value for key, value in fixture.headers.items()}
+        self._body = io.BytesIO(fixture.body)
+        self._read_error = fixture.read_error
+
+    def getheader(self, name, default=None):
+        return self._headers.get(name.casefold(), default)
+
+    def read(self, amount=None):
+        if self._read_error is not None:
+            raise self._read_error
+        return self._body.read(-1 if amount is None else amount)
+
+
+class _ConnectedHTTPSFixture:
+    def __init__(self, fixture):
+        self.fixture = fixture
+        self.requests = []
+        self.closed = False
+
+    @property
+    def peer_ip(self):
+        return self.fixture.peer_ip
+
+    def request(self, method, target, headers):
+        if self.fixture.request_error is not None:
+            raise self.fixture.request_error
+        self.requests.append((method, target, headers))
+
+    def getresponse(self):
+        if self.fixture.response_error is not None:
+            raise self.fixture.response_error
+        return _HTTPResponseFixture(self.fixture)
+
+    def close(self):
+        self.closed = True
+
+
+class ConnectorFixture:
+    def __init__(self, *fixtures):
+        self.fixtures = list(fixtures or (ResponseFixture(),))
+        self.connect_calls = []
+        self.connections = []
+
+    def connect(self, **kwargs):
+        self.connect_calls.append(kwargs)
+        fixture = self.fixtures[len(self.connect_calls) - 1]
+        connection = _ConnectedHTTPSFixture(fixture)
+        self.connections.append(connection)
+        return connection
+
+
 class _RecordingBinaryHandle:
     def __init__(self, handle, events):
         self._handle = handle
@@ -93,10 +220,112 @@ class InterfaceExistenceTests(unittest.TestCase):
 
 
 class NetworkPolicyTests(unittest.TestCase):
+    def test_parse_converts_malformed_authority_to_contract_error(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://[not-an-ip/manual.pdf",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_parse_converts_out_of_range_port_to_contract_error(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://pubs.shure.com:99999/manual.pdf",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_parse_rejects_percent_encoded_signed_query_key_without_leaking_value(self):
+        with self.assertRaises(ContractError) as caught:
+            URLPolicy.parse(
+                "https://pubs.shure.com/manual.pdf?%74oken=top-secret",
+                frozenset({"pubs.shure.com"}),
+            )
+
+        self.assertNotIn("top-secret", str(caught.exception))
+
+    def test_production_connector_pins_ip_but_preserves_tls_server_hostname(self):
+        class RawSocket:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        class TLSSocket:
+            def __init__(self):
+                self.closed = False
+
+            def getpeername(self):
+                return ("93.184.216.34", 443)
+
+            def close(self):
+                self.closed = True
+
+        class Context:
+            def __init__(self, tls_socket):
+                self.tls_socket = tls_socket
+                self.calls = []
+
+            def wrap_socket(self, raw_socket, *, server_hostname):
+                self.calls.append((raw_socket, server_hostname))
+                return self.tls_socket
+
+        raw_socket = RawSocket()
+        tls_socket = TLSSocket()
+        context = Context(tls_socket)
+        with (
+            patch.object(network_module.ssl, "create_default_context", return_value=context),
+            patch.object(network_module.socket, "create_connection", return_value=raw_socket) as connect,
+        ):
+            connection = PinnedTLSConnector().connect(
+                ip_address="93.184.216.34",
+                server_hostname="pubs.shure.com",
+                port=443,
+                timeout_seconds=30.0,
+            )
+
+        connect.assert_called_once_with(("93.184.216.34", 443), 30.0, None)
+        self.assertEqual(context.calls, [(raw_socket, "pubs.shure.com")])
+        self.assertEqual(connection.peer_ip, "93.184.216.34")
+        connection.close()
+        self.assertTrue(tls_socket.closed)
+
+    def test_pinned_https_client_uses_production_connector_by_default(self):
+        client = PinnedHTTPSClient()
+
+        self.assertIsInstance(client.connector, PinnedTLSConnector)
+
+    def test_resolve_public_addresses_returns_unique_socket_addresses(self):
+        answers = [
+            (2, 1, 6, "", ("93.184.216.34", 443)),
+            (2, 1, 6, "", ("93.184.216.34", 443)),
+            (10, 1, 6, "", ("2606:2800:220:1:248:1893:25c8:1946", 443, 0, 0)),
+        ]
+        with patch.object(network_module.socket, "getaddrinfo", return_value=answers) as lookup:
+            result = resolve_public_addresses("example.com")
+
+        self.assertEqual(
+            result,
+            ("93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"),
+        )
+        lookup.assert_called_once_with(
+            "example.com",
+            443,
+            type=network_module.socket.SOCK_STREAM,
+            proto=network_module.socket.IPPROTO_TCP,
+        )
+
     def test_parse_rejects_control_characters_before_urlsplit_normalization(self):
         with self.assertRaises(ContractError):
             URLPolicy.parse(
                 "https://pubs.shure.com/manual.pdf\r\nX-Injected: yes",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_parse_rejects_raw_spaces_before_urlsplit_normalization(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                " https://pubs.shure.com/manual.pdf",
                 frozenset({"pubs.shure.com"}),
             )
 
@@ -197,7 +426,531 @@ class NetworkPolicyTests(unittest.TestCase):
 
 
 class PinnedHTTPSTests(unittest.TestCase):
-    pass
+    def test_download_rejects_svg_doctype_and_entity_declarations(self):
+        bodies = (
+            b'<!doctype svg><svg xmlns="http://www.w3.org/2000/svg"/>',
+            b'<!ENTITY x "unsafe"><svg xmlns="http://www.w3.org/2000/svg"/>',
+            (
+                '<?xml version="1.0" encoding="utf-16"?>'
+                '<!DOCTYPE svg [<!ENTITY x "unsafe">]>'
+                '<svg xmlns="http://www.w3.org/2000/svg">&x;</svg>'
+            ).encode("utf-16"),
+        )
+        accepted = []
+        for body in bodies:
+            try:
+                PinnedHTTPSClient(
+                    resolver=lambda _host: ("93.184.216.34",),
+                    connector=ConnectorFixture(ResponseFixture(body=body)),
+                ).download(_svg_request(body=body), io.BytesIO())
+            except IntegrityError:
+                continue
+            accepted.append(body)
+
+        self.assertEqual(accepted, [])
+
+    def test_download_validates_png_signature_from_bytes(self):
+        valid = b"\x89PNG\r\n\x1a\nrest"
+        invalid = b"not a png"
+        accepted = []
+        for body in (valid, invalid):
+            connector = ConnectorFixture(ResponseFixture(body=body))
+            try:
+                PinnedHTTPSClient(
+                    resolver=lambda _host: ("93.184.216.34",),
+                    connector=connector,
+                ).download(_png_request(body), io.BytesIO())
+            except IntegrityError:
+                continue
+            accepted.append(body)
+
+        self.assertEqual(accepted, [valid])
+
+    def test_download_rejects_noncanonical_content_length_before_writing(self):
+        connector = ConnectorFixture(ResponseFixture(headers={"Content-Length": "+10"}))
+        target = io.BytesIO()
+
+        with self.assertRaises(ContractError):
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            ).download(_pdf_request(), target)
+
+        self.assertEqual(target.getvalue(), b"")
+
+    def test_download_classifies_socket_http_failures_and_always_closes(self):
+        fixtures = (
+            ResponseFixture(request_error=OSError("request failed")),
+            ResponseFixture(response_error=OSError("response failed")),
+            ResponseFixture(read_error=OSError("read failed")),
+        )
+        unclassified = []
+        unclosed = []
+        for fixture in fixtures:
+            connector = ConnectorFixture(fixture)
+            client = PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            )
+            try:
+                client.download(_pdf_request(), io.BytesIO())
+            except RemoteError:
+                pass
+            except Exception as error:
+                unclassified.append(type(error))
+            if not connector.connections[0].closed:
+                unclosed.append(fixture)
+
+        self.assertEqual(unclassified, [])
+        self.assertEqual(unclosed, [])
+
+    def test_download_classifies_connect_failure_as_remote_error(self):
+        class FailingConnector:
+            def connect(self, **_kwargs):
+                raise OSError("connect failed")
+
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=FailingConnector(),
+        )
+
+        with self.assertRaises(RemoteError):
+            client.download(_pdf_request(), io.BytesIO())
+
+    def test_download_rejects_redirect_to_host_outside_allowlist_before_dns(self):
+        connector = ConnectorFixture(
+            ResponseFixture(
+                status=302,
+                headers={"Location": "https://evil.example/final.pdf"},
+                body=b"",
+            )
+        )
+        resolver_calls = []
+
+        def resolver(hostname):
+            resolver_calls.append(hostname)
+            return ("93.184.216.34",)
+
+        with self.assertRaises(ContractError):
+            PinnedHTTPSClient(resolver=resolver, connector=connector).download(
+                _pdf_request(), io.BytesIO()
+            )
+
+        self.assertEqual(resolver_calls, ["pubs.shure.com"])
+
+    def test_download_follows_allowed_cross_host_redirect_with_new_pin(self):
+        connector = ConnectorFixture(
+            ResponseFixture(
+                status=302,
+                headers={"Location": "https://www.neumann.com/final.pdf"},
+                body=b"",
+            ),
+            ResponseFixture(peer_ip="93.184.216.35"),
+        )
+        addresses = {
+            "pubs.shure.com": ("93.184.216.34",),
+            "www.neumann.com": ("93.184.216.35",),
+        }
+
+        result = PinnedHTTPSClient(
+            resolver=lambda hostname: addresses[hostname],
+            connector=connector,
+        ).download(
+            _pdf_request(allowed_hosts=frozenset(addresses)),
+            io.BytesIO(),
+        )
+
+        self.assertEqual(result.final_url, "https://www.neumann.com/final.pdf")
+        self.assertEqual(
+            [call["ip_address"] for call in connector.connect_calls],
+            ["93.184.216.34", "93.184.216.35"],
+        )
+        self.assertEqual(
+            [call["server_hostname"] for call in connector.connect_calls],
+            ["pubs.shure.com", "www.neumann.com"],
+        )
+
+    def test_download_accepts_ipv4_mapped_peer_for_same_pinned_address(self):
+        connector = ConnectorFixture(ResponseFixture(peer_ip="::ffff:93.184.216.34"))
+
+        result = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        ).download(_pdf_request(), io.BytesIO())
+
+        self.assertEqual(result.status, 200)
+
+    def test_download_rejects_206_before_writing(self):
+        connector = ConnectorFixture(
+            ResponseFixture(status=206, headers={"Content-Range": "bytes 0-9/10"})
+        )
+        target = io.BytesIO()
+
+        with self.assertRaises(RemoteHTTPError) as caught:
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            ).download(_pdf_request(), target)
+
+        self.assertEqual(caught.exception.status, 206)
+        self.assertEqual(target.getvalue(), b"")
+
+    def test_download_rejects_redirect_without_location(self):
+        connector = ConnectorFixture(ResponseFixture(status=302, body=b""))
+
+        with self.assertRaises(ContractError):
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+            ).download(_pdf_request(), io.BytesIO())
+
+    def test_download_enforces_configured_redirect_limit(self):
+        connector = ConnectorFixture(
+            ResponseFixture(status=302, headers={"Location": "/one.pdf"}, body=b"")
+        )
+
+        with self.assertRaises(ContractError):
+            PinnedHTTPSClient(
+                resolver=lambda _host: ("93.184.216.34",),
+                connector=connector,
+                max_redirects=0,
+            ).download(_pdf_request(), io.BytesIO())
+
+    def test_download_classifies_dns_failure_as_remote_error(self):
+        def resolver(_hostname):
+            raise OSError("dns failed")
+
+        client = PinnedHTTPSClient(resolver=resolver, connector=ConnectorFixture())
+
+        with self.assertRaises(RemoteError):
+            client.download(_pdf_request(), io.BytesIO())
+
+    def test_download_classifies_read_timeout_as_remote_error_and_closes(self):
+        connector = ConnectorFixture(ResponseFixture(read_error=TimeoutError("slow")))
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(RemoteError):
+            client.download(_pdf_request(), io.BytesIO())
+
+        self.assertTrue(connector.connections[0].closed)
+
+    def test_redirect_rejects_user_info_after_urljoin_before_dns(self):
+        connector = ConnectorFixture(
+            ResponseFixture(
+                status=302,
+                headers={"Location": "https://user:secret@pubs.shure.com/final.pdf"},
+                body=b"",
+            )
+        )
+        resolver_calls = []
+
+        def resolver(hostname):
+            resolver_calls.append(hostname)
+            return ("93.184.216.34",)
+
+        with self.assertRaises(ContractError) as caught:
+            PinnedHTTPSClient(resolver=resolver, connector=connector).download(
+                _pdf_request(), io.BytesIO()
+            )
+
+        self.assertEqual(resolver_calls, ["pubs.shure.com"])
+        self.assertNotIn("secret", str(caught.exception))
+
+    def test_redirect_rejects_fragment_after_urljoin_before_dns(self):
+        connector = ConnectorFixture(
+            ResponseFixture(status=302, headers={"Location": "/final.pdf#page=2"}, body=b"")
+        )
+        resolver_calls = []
+
+        def resolver(hostname):
+            resolver_calls.append(hostname)
+            return ("93.184.216.34",)
+
+        with self.assertRaises(ContractError):
+            PinnedHTTPSClient(resolver=resolver, connector=connector).download(
+                _pdf_request(), io.BytesIO()
+            )
+
+        self.assertEqual(resolver_calls, ["pubs.shure.com"])
+
+    def test_redirect_rejects_control_characters_before_urljoin(self):
+        connector = ConnectorFixture(
+            ResponseFixture(
+                status=302,
+                headers={"Location": "/final.pdf\r\nX-Injected: yes"},
+                body=b"",
+            )
+        )
+        resolver_calls = []
+
+        def resolver(hostname):
+            resolver_calls.append(hostname)
+            return ("93.184.216.34",)
+
+        with self.assertRaises(ContractError):
+            PinnedHTTPSClient(resolver=resolver, connector=connector).download(
+                _pdf_request(), io.BytesIO()
+            )
+
+        self.assertEqual(resolver_calls, ["pubs.shure.com"])
+
+    def test_redirect_rejects_signed_query_before_dns_without_leaking_secret(self):
+        connector = ConnectorFixture(
+            ResponseFixture(
+                status=302,
+                headers={"Location": "/final.pdf?X-Amz-Signature=top-secret"},
+                body=b"",
+            )
+        )
+        resolver_calls = []
+
+        def resolver(hostname):
+            resolver_calls.append(hostname)
+            return ("93.184.216.34",)
+
+        with self.assertRaises(ContractError) as caught:
+            PinnedHTTPSClient(resolver=resolver, connector=connector).download(
+                _pdf_request(), io.BytesIO()
+            )
+
+        self.assertEqual(resolver_calls, ["pubs.shure.com"])
+        self.assertNotIn("top-secret", str(caught.exception))
+
+    def test_download_accepts_svg_bytes_at_opaque_url_regardless_of_content_type(self):
+        body = b'<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>'
+        connector = ConnectorFixture(
+            ResponseFixture(headers={"Content-Type": "text/plain"}, body=body)
+        )
+        result = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        ).download(_svg_request(body=body), io.BytesIO())
+
+        self.assertEqual(result.size_bytes, len(body))
+        self.assertEqual(result.content_type, "text/plain")
+        self.assertEqual(result.final_url, "https://www.neumann.com/svg/Zz09PT0=")
+
+    def test_download_rejects_non_svg_body_for_svg_media_type(self):
+        body = b"<html>error</html>"
+        connector = ConnectorFixture(ResponseFixture(body=body))
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(IntegrityError):
+            client.download(_svg_request(body=body), io.BytesIO())
+
+    def test_download_rejects_html_body_disguised_as_pdf(self):
+        body = b"<html>error</html>"
+        connector = ConnectorFixture(
+            ResponseFixture(headers={"Content-Type": "application/pdf"}, body=body)
+        )
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(IntegrityError):
+            client.download(_pdf_request(body=body), io.BytesIO())
+
+    def test_download_rejects_sha256_mismatch_after_eof(self):
+        connector = ConnectorFixture(ResponseFixture())
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(IntegrityError):
+            client.download(
+                _pdf_request(expected_sha256="0" * 64),
+                io.BytesIO(),
+            )
+
+    def test_download_rejects_short_body_at_eof(self):
+        body = b"%PDF-1.7\n"
+        connector = ConnectorFixture(ResponseFixture(body=body))
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(IntegrityError):
+            client.download(_pdf_request(body=body, expected_size=len(body) + 1), io.BytesIO())
+
+    def test_download_stops_when_stream_exceeds_expected_size(self):
+        body = b"%PDF-1.7\nextra"
+        connector = ConnectorFixture(ResponseFixture(body=body))
+        target = io.BytesIO()
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(IntegrityError):
+            client.download(_pdf_request(expected_size=10), target)
+
+        self.assertLessEqual(len(target.getvalue()), 10)
+
+    def test_download_rejects_content_length_mismatch_before_writing(self):
+        connector = ConnectorFixture(ResponseFixture(headers={"Content-Length": "999"}))
+        target = io.BytesIO()
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(IntegrityError):
+            client.download(_pdf_request(), target)
+
+        self.assertEqual(target.getvalue(), b"")
+
+    def test_download_rejects_non_identity_content_encoding_before_writing(self):
+        connector = ConnectorFixture(ResponseFixture(headers={"Content-Encoding": "gzip"}))
+        target = io.BytesIO()
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(ContractError):
+            client.download(_pdf_request(), target)
+
+        self.assertEqual(target.getvalue(), b"")
+
+    def test_download_rejects_200_with_content_range_before_writing(self):
+        connector = ConnectorFixture(
+            ResponseFixture(headers={"Content-Range": "bytes 0-10/20"})
+        )
+        target = io.BytesIO()
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(ContractError):
+            client.download(_pdf_request(), target)
+
+        self.assertEqual(target.getvalue(), b"")
+
+    def test_download_rejects_final_status_other_than_200_before_writing(self):
+        connector = ConnectorFixture(ResponseFixture(status=404, body=b"not found"))
+        target = io.BytesIO()
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(RemoteHTTPError) as caught:
+            client.download(_pdf_request(), target)
+
+        self.assertEqual(caught.exception.status, 404)
+        self.assertEqual(target.getvalue(), b"")
+        self.assertTrue(connector.connections[0].closed)
+
+    def test_download_rejects_redirect_loop_before_repeating_request(self):
+        connector = ConnectorFixture(
+            ResponseFixture(status=302, headers={"Location": "/second.pdf"}, body=b""),
+            ResponseFixture(status=302, headers={"Location": "/manual.pdf"}, body=b""),
+        )
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(ContractError):
+            client.download(_pdf_request(), io.BytesIO())
+
+        self.assertEqual(len(connector.connect_calls), 2)
+
+    def test_download_follows_relative_redirect_and_re_resolves_same_host(self):
+        connector = ConnectorFixture(
+            ResponseFixture(status=302, headers={"Location": "/final.pdf"}, body=b""),
+            ResponseFixture(),
+        )
+        resolver_calls = []
+
+        def resolver(hostname):
+            resolver_calls.append(hostname)
+            return ("93.184.216.34",)
+
+        result = PinnedHTTPSClient(resolver=resolver, connector=connector).download(
+            _pdf_request(), io.BytesIO()
+        )
+
+        self.assertEqual(resolver_calls, ["pubs.shure.com", "pubs.shure.com"])
+        self.assertEqual(result.final_url, "https://pubs.shure.com/final.pdf")
+        self.assertEqual(
+            [connection.requests[0][1] for connection in connector.connections],
+            ["/manual.pdf", "/final.pdf"],
+        )
+        self.assertTrue(all(connection.closed for connection in connector.connections))
+
+    def test_download_preserves_tls_hostname_host_header_and_resolves_once(self):
+        connector = ConnectorFixture(ResponseFixture(headers={"Content-Type": "application/pdf"}))
+        resolver_calls = []
+
+        def resolver(hostname):
+            resolver_calls.append(hostname)
+            return ("93.184.216.34",)
+
+        client = PinnedHTTPSClient(resolver=resolver, connector=connector)
+        target = io.BytesIO()
+
+        result = client.download(_pdf_request(), target)
+
+        self.assertEqual(resolver_calls, ["pubs.shure.com"])
+        self.assertEqual(
+            connector.connect_calls,
+            [
+                {
+                    "ip_address": "93.184.216.34",
+                    "server_hostname": "pubs.shure.com",
+                    "port": 443,
+                    "timeout_seconds": 30.0,
+                }
+            ],
+        )
+        self.assertEqual(
+            connector.connections[0].requests,
+            [
+                (
+                    "GET",
+                    "/manual.pdf",
+                    {"Host": "pubs.shure.com", "Accept-Encoding": "identity"},
+                )
+            ],
+        )
+        self.assertEqual(target.getvalue(), b"%PDF-1.7\n")
+        self.assertEqual(result.final_url, "https://pubs.shure.com/manual.pdf")
+        self.assertTrue(connector.connections[0].closed)
+
+    def test_download_rejects_peer_different_from_pinned_ip(self):
+        connector = ConnectorFixture(ResponseFixture(peer_ip="93.184.216.35"))
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34",),
+            connector=connector,
+        )
+
+        with self.assertRaises(ContractError):
+            client.download(_pdf_request(), io.BytesIO())
+
+        self.assertTrue(connector.connections[0].closed)
+
+    def test_download_rejects_when_any_resolved_address_is_not_public(self):
+        connector = ConnectorFixture()
+        client = PinnedHTTPSClient(
+            resolver=lambda _host: ("93.184.216.34", "127.0.0.1"),
+            connector=connector,
+        )
+
+        with self.assertRaises(ContractError):
+            client.download(_pdf_request(), io.BytesIO())
+
+        self.assertEqual(connector.connect_calls, [])
 
 
 class StorageContractTests(unittest.TestCase):
