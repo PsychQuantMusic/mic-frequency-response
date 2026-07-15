@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "mic_slug": "neumann-tlm102",
+  "references": [],
+  "artifacts": [
+    {
+      "id": "official-svg",
+      "role": "original",
+      "availability": "unavailable",
+      "redaction_ref": "neumann-tlm102-source-asset",
+      "curve_files": [
+        "frequency-response--typical.csv"
+      ],
+      "checked_at": "2026-07-15T12:00:00Z",
+      "reason": "no stable endpoint",
+      "redistribution": "local-only"
+    }
+  ]
+}

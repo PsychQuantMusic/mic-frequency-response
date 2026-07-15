@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "hosts": [
+    "assets.sennheiser.com",
+    "audixusa.com",
+    "content-files.shure.com",
+    "docs.audio-technica.com",
+    "docs.cloud.sennheiser.com",
+    "edge.rode.com",
+    "products.electrovoice.com",
+    "pubs.shure.com",
+    "seelectronics.com",
+    "www.akg.com",
+    "www.lewitt-audio.com",
+    "www.neumann.com",
+    "www.sennheiser.com"
+  ]
+}
