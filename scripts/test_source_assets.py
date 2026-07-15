@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -12,10 +13,44 @@ from source_assets_lib import (
     ContractError,
     FileDigest,
     IntegrityError,
+    Policy,
+    RemoteError,
     digest_file,
+    load_manifest,
     resolve_local_path,
+    validate_manifest,
     validate_signature,
 )
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+MANIFEST_FIXTURES = REPOSITORY_ROOT / "digitizer" / "test" / "fixtures" / "source-manifests"
+
+
+def _load_fixture(name):
+    return json.loads((MANIFEST_FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def _make_mic_dir(root, document, curves=("frequency-response--typical.csv",)):
+    mic_dir = Path(root) / "data" / document["mic_slug"]
+    mic_dir.mkdir(parents=True)
+    curve_lines = "\n".join(f"  - file: {curve}" for curve in curves)
+    (mic_dir / "meta.yaml").write_text(f"curves:\n{curve_lines}\n", encoding="utf-8")
+    for curve in curves:
+        (mic_dir / curve).write_text("frequency_hz,db\n1000,0\n", encoding="utf-8")
+    return mic_dir
+
+
+def _policy(*, redactions=None):
+    return Policy(
+        hosts=frozenset(
+            {
+                "pubs.shure.com",
+                "www.neumann.com",
+            }
+        ),
+        redactions={} if redactions is None else redactions,
+    )
 
 
 class _RecordingBinaryHandle:
@@ -135,6 +170,20 @@ class StorageContractTests(unittest.TestCase):
             with self.assertRaisesRegex(IntegrityError, "ENTITY"):
                 validate_signature(path, "image/svg+xml")
 
+    def test_validate_signature_rejects_utf16_svg_doctype(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "chart.svg"
+            path.write_bytes(
+                (
+                    '<?xml version="1.0" encoding="utf-16"?>'
+                    '<!DOCTYPE svg [<!ENTITY x "unsafe">]>'
+                    '<svg xmlns="http://www.w3.org/2000/svg">&x;</svg>'
+                ).encode("utf-16")
+            )
+
+            with self.assertRaisesRegex(IntegrityError, "DOCTYPE"):
+                validate_signature(path, "image/svg+xml")
+
     def test_validate_signature_requires_svg_root_element(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "chart.svg"
@@ -163,6 +212,7 @@ class StorageContractTests(unittest.TestCase):
                     sha256="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
                 ),
             )
+
 
     def test_publish_blob_is_atomic_durable_and_uses_same_directory_temp(self):
         with tempfile.TemporaryDirectory() as td:
@@ -416,6 +466,591 @@ class StorageContractTests(unittest.TestCase):
                     [],
                 ),
             )
+
+    def test_publish_manifest_cleans_temp_and_preserves_target_on_replace_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "source-manifest.json"
+            target.write_bytes(b"old manifest\n")
+            caught = None
+
+            with patch.object(
+                storage_module.os,
+                "replace",
+                side_effect=OSError("replace failure"),
+            ):
+                try:
+                    AtomicArtifactStore().publish_manifest(target, {"schema_version": 1})
+                except Exception as error:
+                    caught = (type(error), str(error))
+
+            self.assertEqual(
+                (
+                    caught,
+                    target.read_bytes(),
+                    list(target.parent.glob(f".{target.name}.*.tmp")),
+                ),
+                (
+                    (ContractError, f"manifest replace 失敗：{target}"),
+                    b"old manifest\n",
+                    [],
+                ),
+            )
+
+
+class ManifestContractTests(unittest.TestCase):
+    def test_load_manifest_reads_json_object(self):
+        expected = _load_fixture("available-pdf.json")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "source-manifest.json"
+            path.write_text(json.dumps(expected), encoding="utf-8")
+
+            self.assertEqual(load_manifest(path, allow_pending=False), expected)
+
+    def test_load_manifest_rejects_pending_unless_explicitly_allowed(self):
+        document = _load_fixture("pending-pdf.json")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "source-manifest.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+            with self.assertRaises(ContractError):
+                load_manifest(path, allow_pending=False)
+
+    def test_load_manifest_rejects_duplicate_json_keys(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "source-manifest.json"
+            path.write_text('{"schema_version":1,"schema_version":1}', encoding="utf-8")
+
+            with self.assertRaises(ContractError):
+                load_manifest(path, allow_pending=False)
+
+    def test_load_manifest_rejects_invalid_json_and_non_object(self):
+        with tempfile.TemporaryDirectory() as td:
+            invalid = Path(td) / "invalid.json"
+            invalid.write_text("{", encoding="utf-8")
+            non_object = Path(td) / "non-object.json"
+            non_object.write_text("[]", encoding="utf-8")
+
+            for path in (invalid, non_object):
+                with self.subTest(path=path.name), self.assertRaises(ContractError):
+                    load_manifest(path, allow_pending=False)
+
+    def test_validate_manifest_rejects_unknown_top_level_field(self):
+        document = _load_fixture("derived-chain.json")
+        document["unknown"] = True
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaises(ContractError):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_requires_schema_version_one(self):
+        document = _load_fixture("derived-chain.json")
+        document["schema_version"] = 2
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaises(ContractError):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_rejects_invalid_mic_slug(self):
+        document = _load_fixture("derived-chain.json")
+        document["mic_slug"] = "Shure_SM58"
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaises(ContractError):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_rejects_invalid_reference_variants(self):
+        invalid_references = [
+            [{"role": "download-page", "url": "https://pubs.shure.com/product"}],
+            [{"role": "product-page", "url": "http://pubs.shure.com/product"}],
+            [
+                {
+                    "role": "product-page",
+                    "url": "https://pubs.shure.com/product",
+                    "note": "unknown",
+                }
+            ],
+            "not-an-array",
+        ]
+        accepted = []
+        for index, references in enumerate(invalid_references):
+            document = _load_fixture("derived-chain.json")
+            document["references"] = references
+            with tempfile.TemporaryDirectory() as td:
+                mic_dir = _make_mic_dir(td, document)
+                try:
+                    validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+                except ContractError:
+                    continue
+                accepted.append(index)
+
+        self.assertEqual(accepted, [])
+
+    def test_load_manifest_reports_non_string_reference_role_as_contract_error(self):
+        document = _load_fixture("available-pdf.json")
+        document["references"] = [
+            {"role": [], "url": "https://pubs.shure.com/product"}
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "source-manifest.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            caught_type = None
+            try:
+                load_manifest(path, allow_pending=False)
+            except Exception as error:
+                caught_type = type(error)
+
+            self.assertIs(caught_type, ContractError)
+
+    def test_load_manifest_requires_artifacts_array(self):
+        document = _load_fixture("available-pdf.json")
+        document["artifacts"] = "not-an-array"
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "source-manifest.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+            with self.assertRaises(ContractError):
+                load_manifest(path, allow_pending=False)
+
+    def test_load_manifest_rejects_unknown_artifact_fields_and_variants(self):
+        cases = []
+        for index in range(3):
+            document = _load_fixture("derived-chain.json")
+            document["artifacts"][index]["unknown"] = True
+            cases.append(document)
+        pending = _load_fixture("pending-pdf.json")
+        pending["artifacts"][0]["unknown"] = True
+        cases.append(pending)
+        unavailable = _load_fixture("unavailable-redacted.json")
+        unavailable["artifacts"][0]["unknown"] = True
+        cases.append(unavailable)
+        invalid_variant = _load_fixture("derived-chain.json")
+        invalid_variant["artifacts"][0]["availability"] = "ignored"
+        cases.append(invalid_variant)
+
+        accepted = []
+        with tempfile.TemporaryDirectory() as td:
+            for index, document in enumerate(cases):
+                path = Path(td) / f"manifest-{index}.json"
+                path.write_text(json.dumps(document), encoding="utf-8")
+                try:
+                    load_manifest(path, allow_pending=True)
+                except ContractError:
+                    continue
+                accepted.append(index)
+
+        self.assertEqual(accepted, [])
+
+    def test_load_manifest_rejects_invalid_artifact_values(self):
+        cases = []
+
+        def add(name, index, field, value):
+            document = _load_fixture(name)
+            document["artifacts"][index][field] = value
+            cases.append(document)
+
+        add("available-pdf.json", 0, "id", "")
+        add("available-pdf.json", 0, "size_bytes", True)
+        add("available-pdf.json", 0, "sha256", "A" * 64)
+        add("available-pdf.json", 0, "redistribution", "public")
+        add(
+            "available-pdf.json",
+            0,
+            "curve_files",
+            ["frequency-response--typical.csv", "frequency-response--typical.csv"],
+        )
+        add("available-pdf.json", 0, "allowed_hosts", [])
+        add("available-pdf.json", 0, "local_path", "source/original.svg")
+        add("available-pdf.json", 0, "source_url", "http://pubs.shure.com/manual.pdf")
+        add("unavailable-redacted.json", 0, "reason", "")
+        add("unavailable-redacted.json", 0, "redaction_ref", "")
+        add("derived-chain.json", 1, "derived_from", "")
+        add("derived-chain.json", 2, "curve_files", ["nested/curve.csv"])
+
+        accepted = []
+        with tempfile.TemporaryDirectory() as td:
+            for index, document in enumerate(cases):
+                path = Path(td) / f"manifest-{index}.json"
+                path.write_text(json.dumps(document), encoding="utf-8")
+                try:
+                    load_manifest(path, allow_pending=True)
+                except ContractError:
+                    continue
+                accepted.append(index)
+
+        self.assertEqual(accepted, [])
+
+    def test_load_manifest_rejects_invalid_derivation_values(self):
+        cases = []
+
+        def page_case(mutator):
+            document = _load_fixture("derived-chain.json")
+            mutator(document["artifacts"][1]["derivation"])
+            cases.append(document)
+
+        def crop_case(mutator):
+            document = _load_fixture("derived-chain.json")
+            mutator(document["artifacts"][2]["derivation"])
+            cases.append(document)
+
+        page_case(lambda value: value.pop("page"))
+        page_case(lambda value: value.update(unknown=True))
+        page_case(lambda value: value.update(page=True))
+        page_case(lambda value: value.update(render_dpi=299))
+        page_case(lambda value: value.update(render_tool=""))
+        crop_case(lambda value: value.update(crop_box_px=[0, 0, 100]))
+        crop_case(lambda value: value.update(crop_box_px=[0, 0, True, 100]))
+        crop_case(lambda value: value.update(crop_box_px=[0, -1, 100, 100]))
+        crop_case(lambda value: value.update(unknown=True))
+        crop_case(lambda value: value.update(crop_tool=""))
+
+        accepted = []
+        with tempfile.TemporaryDirectory() as td:
+            for index, document in enumerate(cases):
+                path = Path(td) / f"manifest-{index}.json"
+                path.write_text(json.dumps(document), encoding="utf-8")
+                try:
+                    load_manifest(path, allow_pending=False)
+                except ContractError:
+                    continue
+                accepted.append(index)
+
+        self.assertEqual(accepted, [])
+
+    def test_validate_manifest_rejects_duplicate_local_path(self):
+        document = _load_fixture("derived-chain.json")
+        document["artifacts"][2]["local_path"] = document["artifacts"][1]["local_path"]
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaises(ContractError):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_rejects_duplicate_artifact_id(self):
+        document = _load_fixture("derived-chain.json")
+        duplicate = {
+            "id": "duplicate-source",
+            "role": "original",
+            "availability": "unavailable",
+            "source_url": "https://pubs.shure.com/missing.pdf",
+            "curve_files": ["frequency-response--typical.csv"],
+            "checked_at": "2026-07-15T12:00:00Z",
+            "reason": "not found",
+            "redistribution": "local-only",
+            "allowed_hosts": ["pubs.shure.com"],
+        }
+        document["artifacts"].extend([duplicate, {**duplicate, "reason": "gone"}])
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaisesRegex(ContractError, "id"):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_requires_slug_to_match_directory(self):
+        document = _load_fixture("derived-chain.json")
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+            wrong_dir = mic_dir.with_name("different-microphone")
+            mic_dir.rename(wrong_dir)
+
+            with self.assertRaises(ContractError):
+                validate_manifest(document, wrong_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_applies_strict_local_path_contract(self):
+        document = _load_fixture("derived-chain.json")
+        document["artifacts"][0]["local_path"] = "source/nested/original.pdf"
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaises(ContractError):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_enforces_exact_host_policy(self):
+        cases = []
+        wrong_entry_host = _load_fixture("derived-chain.json")
+        wrong_entry_host["artifacts"][0]["allowed_hosts"] = ["www.neumann.com"]
+        cases.append(wrong_entry_host)
+
+        unknown_source_host = _load_fixture("derived-chain.json")
+        unknown_source_host["artifacts"][0]["source_url"] = "https://evil.example/manual.pdf"
+        unknown_source_host["artifacts"][0]["allowed_hosts"] = ["evil.example"]
+        cases.append(unknown_source_host)
+
+        unknown_reference_host = _load_fixture("derived-chain.json")
+        unknown_reference_host["references"] = [
+            {"role": "product-page", "url": "https://evil.example/product"}
+        ]
+        cases.append(unknown_reference_host)
+
+        accepted = []
+        for index, document in enumerate(cases):
+            with tempfile.TemporaryDirectory() as td:
+                mic_dir = _make_mic_dir(td, document)
+                try:
+                    validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+                except ContractError:
+                    continue
+                accepted.append(index)
+
+        self.assertEqual(accepted, [])
+
+    def test_validate_manifest_enforces_derived_parent_roles(self):
+        svg_parent = _load_fixture("derived-chain.json")
+        svg_parent["artifacts"][0]["local_path"] = "source/original.svg"
+        svg_parent["artifacts"][0]["media_type"] = "image/svg+xml"
+
+        crop_from_original = _load_fixture("derived-chain.json")
+        original = crop_from_original["artifacts"][0]
+        crop = crop_from_original["artifacts"][2]
+        crop["derived_from"] = original["id"]
+        crop["derived_from_sha256"] = original["sha256"]
+
+        accepted = []
+        for index, document in enumerate((svg_parent, crop_from_original)):
+            with tempfile.TemporaryDirectory() as td:
+                mic_dir = _make_mic_dir(td, document)
+                try:
+                    validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+                except ContractError:
+                    continue
+                accepted.append(index)
+
+        self.assertEqual(accepted, [])
+
+    def test_validate_manifest_requires_declared_curve_files_to_exist_in_meta(self):
+        extra_curve = _load_fixture("derived-chain.json")
+        extra_curve["artifacts"][0]["curve_files"].append("frequency-response--ghost.csv")
+
+        accepted = []
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, extra_curve)
+            try:
+                validate_manifest(extra_curve, mic_dir, _policy(), allow_pending=False)
+            except ContractError:
+                pass
+            else:
+                accepted.append("extra")
+
+        missing_file = _load_fixture("derived-chain.json")
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, missing_file)
+            (mic_dir / "frequency-response--typical.csv").unlink()
+            try:
+                validate_manifest(missing_file, mic_dir, _policy(), allow_pending=False)
+            except ContractError:
+                pass
+            else:
+                accepted.append("missing")
+
+        self.assertEqual(accepted, [])
+
+    def test_validate_manifest_enforces_crop_subset_and_pdf_crop_coverage(self):
+        wrong_subset = _load_fixture("derived-chain.json")
+        wrong_subset["artifacts"][2]["curve_files"] = ["frequency-response--other.csv"]
+        wrong_subset["artifacts"].append(
+            {
+                "id": "other-source",
+                "role": "original",
+                "availability": "unavailable",
+                "source_url": "https://pubs.shure.com/other.pdf",
+                "curve_files": ["frequency-response--other.csv"],
+                "checked_at": "2026-07-15T12:00:00Z",
+                "reason": "not found",
+                "redistribution": "local-only",
+                "allowed_hosts": ["pubs.shure.com"],
+            }
+        )
+
+        no_crop = _load_fixture("available-pdf.json")
+        accepted = []
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(
+                td,
+                wrong_subset,
+                curves=(
+                    "frequency-response--typical.csv",
+                    "frequency-response--other.csv",
+                ),
+            )
+            try:
+                validate_manifest(wrong_subset, mic_dir, _policy(), allow_pending=False)
+            except ContractError:
+                pass
+            else:
+                accepted.append("subset")
+
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, no_crop)
+            try:
+                validate_manifest(no_crop, mic_dir, _policy(), allow_pending=False)
+            except ContractError:
+                pass
+            else:
+                accepted.append("coverage")
+
+        self.assertEqual(accepted, [])
+
+    def test_validate_manifest_rejects_invalid_utc_timestamp(self):
+        document = _load_fixture("derived-chain.json")
+        document["artifacts"][0]["retrieved_at"] = "2026-02-31T12:00:00Z"
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaises(ContractError):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_rejects_derived_graph_cycle(self):
+        document = _load_fixture("derived-chain.json")
+        page = document["artifacts"][1]
+        crop = document["artifacts"][2]
+        page["derived_from"] = crop["id"]
+        crop["derived_from"] = page["id"]
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaisesRegex(ContractError, "循環"):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_rejects_parent_hash_mismatch(self):
+        document = _load_fixture("derived-chain.json")
+        document["artifacts"][1]["derived_from_sha256"] = "0" * 64
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaises(IntegrityError):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_requires_original_curve_coverage(self):
+        document = _load_fixture("derived-chain.json")
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(
+                td,
+                document,
+                curves=(
+                    "frequency-response--typical.csv",
+                    "frequency-response--other.csv",
+                ),
+            )
+
+            with self.assertRaisesRegex(ContractError, "覆蓋"):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_propagates_stale_state_to_descendants(self):
+        document = _load_fixture("derived-chain.json")
+        document["artifacts"][1]["derived_from_sha256"] = "0" * 64
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaisesRegex(IntegrityError, "frequency-response-chart"):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_rejects_unavailable_missing_redaction_reference(self):
+        document = _load_fixture("unavailable-redacted.json")
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            with self.assertRaisesRegex(ContractError, "redaction_ref"):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_rejects_wrong_redaction_record(self):
+        document = _load_fixture("unavailable-redacted.json")
+        reference_id = document["artifacts"][0]["redaction_ref"]
+        record = _load_fixture("redaction-no-stable-endpoint.json")["entries"][0]
+        policies = [
+            _policy(redactions={reference_id: {**record, "disposition": "replaced"}}),
+            _policy(redactions={reference_id: {**record, "mic_slug": "other-mic"}}),
+            _policy(redactions={reference_id: {**record, "id": "other-record"}}),
+        ]
+
+        accepted = []
+        for index, policy in enumerate(policies):
+            with tempfile.TemporaryDirectory() as td:
+                mic_dir = _make_mic_dir(td, document)
+                try:
+                    validate_manifest(document, mic_dir, policy, allow_pending=False)
+                except ContractError:
+                    continue
+                accepted.append(index)
+
+        self.assertEqual(accepted, [])
+
+    def test_validate_manifest_requires_same_mic_redaction_mapping(self):
+        document = _load_fixture("derived-chain.json")
+        no_endpoint = _load_fixture("redaction-no-stable-endpoint.json")["entries"][0]
+        no_endpoint = {
+            **no_endpoint,
+            "id": "unreferenced-redaction",
+            "mic_slug": document["mic_slug"],
+        }
+        replaced = _load_fixture("redaction-replaced.json")["entries"][0]
+        replaced = {
+            **replaced,
+            "id": "missing-canonical-mapping",
+            "mic_slug": document["mic_slug"],
+            "canonical_url": "https://pubs.shure.com/canonical.pdf",
+        }
+        policies = [
+            _policy(redactions={no_endpoint["id"]: no_endpoint}),
+            _policy(redactions={replaced["id"]: replaced}),
+        ]
+
+        accepted = []
+        for index, policy in enumerate(policies):
+            with tempfile.TemporaryDirectory() as td:
+                mic_dir = _make_mic_dir(td, document)
+                try:
+                    validate_manifest(document, mic_dir, policy, allow_pending=False)
+                except ContractError:
+                    continue
+                accepted.append(index)
+
+        self.assertEqual(accepted, [])
+
+    def test_pending_gate_applies_to_load_and_direct_validation(self):
+        document = _load_fixture("pending-pdf.json")
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "source-manifest.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            mic_dir = _make_mic_dir(td, document)
+
+            self.assertEqual(load_manifest(path, allow_pending=True), document)
+            validate_manifest(document, mic_dir, _policy(), allow_pending=True)
+            with self.assertRaises(ContractError):
+                validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_accepts_complete_chain_in_any_artifact_order(self):
+        document = _load_fixture("derived-chain.json")
+        document["artifacts"].reverse()
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_accepts_available_svg_without_crop(self):
+        document = _load_fixture("available-pdf.json")
+        document["artifacts"][0]["local_path"] = "source/original.svg"
+        document["artifacts"][0]["media_type"] = "image/svg+xml"
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            validate_manifest(document, mic_dir, _policy(), allow_pending=False)
+
+    def test_validate_manifest_accepts_no_stable_endpoint_redaction(self):
+        document = _load_fixture("unavailable-redacted.json")
+        record = _load_fixture("redaction-no-stable-endpoint.json")["entries"][0]
+        policy = _policy(redactions={record["id"]: record})
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir = _make_mic_dir(td, document)
+
+            validate_manifest(document, mic_dir, policy, allow_pending=False)
+
+    def test_error_exit_codes_match_cli_contract(self):
+        self.assertEqual(
+            (ContractError.exit_code, IntegrityError.exit_code, RemoteError.exit_code),
+            (1, 2, 2),
+        )
 
 
 if __name__ == "__main__":
