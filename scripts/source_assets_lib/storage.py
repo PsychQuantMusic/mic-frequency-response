@@ -41,10 +41,13 @@ def resolve_local_path(mic_dir: Path, local_path: str) -> Path:
 def digest_file(path: Path) -> FileDigest:
     digest = hashlib.sha256()
     size = 0
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-            size += len(chunk)
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+                size += len(chunk)
+    except OSError as error:
+        raise ContractError(f"無法讀取檔案：{path}") from error
     return FileDigest(size, digest.hexdigest())
 
 
@@ -52,7 +55,10 @@ def validate_signature(path: Path, media_type: str) -> None:
     supported = {"application/pdf", "image/png", "image/svg+xml"}
     if media_type not in supported:
         raise ContractError(f"不支援的 media_type：{media_type}")
-    content = path.read_bytes()
+    try:
+        content = path.read_bytes()
+    except OSError as error:
+        raise ContractError(f"無法讀取檔案：{path}") from error
     if media_type == "application/pdf" and not content.startswith(b"%PDF-"):
         raise IntegrityError(f"檔案不是有效的 PDF：{path}")
     if media_type == "image/png" and not content.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -65,7 +71,7 @@ def validate_signature(path: Path, media_type: str) -> None:
     if media_type == "image/svg+xml":
         try:
             root = ElementTree.fromstring(content)
-        except ElementTree.ParseError as error:
+        except (ElementTree.ParseError, LookupError) as error:
             raise IntegrityError(f"SVG XML 無法解析：{path}") from error
         if root.tag.rsplit("}", 1)[-1] != "svg":
             raise IntegrityError(f"SVG 根元素必須是 svg：{path}")
@@ -103,7 +109,10 @@ class AtomicArtifactStore:
             with handle:
                 result = producer(handle)
                 handle.flush()
-                os.fsync(handle.fileno())
+                try:
+                    os.fsync(handle.fileno())
+                except OSError as error:
+                    raise ContractError(f"artifact 檔案 fsync 失敗：{target}") from error
 
             validate_signature(temp_path, media_type)
             file_digest = digest_file(temp_path)
@@ -145,7 +154,10 @@ class AtomicArtifactStore:
             with handle:
                 handle.write(payload)
                 handle.flush()
-                os.fsync(handle.fileno())
+                try:
+                    os.fsync(handle.fileno())
+                except OSError as error:
+                    raise ContractError(f"manifest 檔案 fsync 失敗：{target}") from error
 
             try:
                 os.replace(temp_path, target)

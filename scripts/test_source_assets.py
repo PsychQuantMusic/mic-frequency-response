@@ -15,6 +15,7 @@ from source_assets_lib import (
     IntegrityError,
     Policy,
     RemoteError,
+    SourceAssetError,
     digest_file,
     load_manifest,
     resolve_local_path,
@@ -192,6 +193,25 @@ class StorageContractTests(unittest.TestCase):
             with self.assertRaises(IntegrityError):
                 validate_signature(path, "image/svg+xml")
 
+    def test_validate_signature_reports_unknown_svg_encoding_as_integrity_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "chart.svg"
+            path.write_bytes(
+                b'<?xml version="1.0" encoding="x-unknown"?>'
+                b'<svg xmlns="http://www.w3.org/2000/svg"/>'
+            )
+
+            caught = None
+            try:
+                validate_signature(path, "image/svg+xml")
+            except Exception as error:
+                caught = (type(error), getattr(error, "exit_code", None), str(error))
+
+            self.assertEqual(
+                caught,
+                (IntegrityError, 2, f"SVG XML 無法解析：{path}"),
+            )
+
     def test_validate_signature_rejects_unknown_media_type(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "artifact.bin"
@@ -212,6 +232,43 @@ class StorageContractTests(unittest.TestCase):
                     sha256="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
                 ),
             )
+
+    def test_digest_file_reports_open_failure_as_contract_error(self):
+        path = Path("/not-opened/artifact.bin")
+        with patch.object(Path, "open", side_effect=OSError("open failure")):
+            with self.assertRaisesRegex(ContractError, "無法讀取檔案") as caught:
+                digest_file(path)
+
+        self.assertEqual(caught.exception.exit_code, 1)
+
+    def test_digest_file_reports_read_failure_as_contract_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "artifact.bin"
+            path.write_bytes(b"abc")
+
+            class FailingReadHandle:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+                def read(self, _size):
+                    raise OSError("read failure")
+
+            with patch.object(Path, "open", return_value=FailingReadHandle()):
+                with self.assertRaisesRegex(ContractError, "無法讀取檔案") as caught:
+                    digest_file(path)
+
+            self.assertEqual(caught.exception.exit_code, 1)
+
+    def test_validate_signature_reports_read_failure_as_contract_error(self):
+        path = Path("/not-read/chart.svg")
+        with patch.object(Path, "read_bytes", side_effect=OSError("read failure")):
+            with self.assertRaisesRegex(ContractError, "無法讀取檔案") as caught:
+                validate_signature(path, "image/svg+xml")
+
+        self.assertEqual(caught.exception.exit_code, 1)
 
 
     def test_publish_blob_is_atomic_durable_and_uses_same_directory_temp(self):
@@ -337,6 +394,70 @@ class StorageContractTests(unittest.TestCase):
                     list(target.parent.glob(f".{target.name}.*.tmp")),
                 ),
                 ("validator failure", b"old target", []),
+            )
+
+    def test_publish_blob_preserves_existing_source_asset_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "manual.pdf"
+            target.write_bytes(b"old target")
+            expected = IntegrityError("已分類的完整性錯誤")
+
+            def failing_producer(_handle):
+                raise expected
+
+            caught = None
+            try:
+                AtomicArtifactStore().publish_blob(
+                    target,
+                    "application/pdf",
+                    failing_producer,
+                )
+            except SourceAssetError as error:
+                caught = error
+
+            self.assertIs(caught, expected)
+            self.assertEqual(
+                (
+                    target.read_bytes(),
+                    list(target.parent.glob(f".{target.name}.*.tmp")),
+                ),
+                (b"old target", []),
+            )
+
+    def test_publish_blob_reports_file_fsync_failure_as_contract_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "manual.pdf"
+            target.write_bytes(b"old target")
+
+            def producer(handle):
+                handle.write(b"%PDF-new")
+
+            caught = None
+            with patch.object(
+                storage_module.os,
+                "fsync",
+                side_effect=OSError("file fsync failure"),
+            ):
+                try:
+                    AtomicArtifactStore().publish_blob(
+                        target,
+                        "application/pdf",
+                        producer,
+                    )
+                except Exception as error:
+                    caught = (type(error), getattr(error, "exit_code", None), str(error))
+
+            self.assertEqual(
+                (
+                    caught,
+                    target.read_bytes(),
+                    list(target.parent.glob(f".{target.name}.*.tmp")),
+                ),
+                (
+                    (ContractError, 1, f"artifact 檔案 fsync 失敗：{target}"),
+                    b"old target",
+                    [],
+                ),
             )
 
     def test_publish_blob_cleans_temp_and_preserves_target_on_replace_failure(self):
@@ -491,6 +612,38 @@ class StorageContractTests(unittest.TestCase):
                 ),
                 (
                     (ContractError, f"manifest replace 失敗：{target}"),
+                    b"old manifest\n",
+                    [],
+                ),
+            )
+
+    def test_publish_manifest_reports_file_fsync_failure_as_contract_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "source-manifest.json"
+            target.write_bytes(b"old manifest\n")
+            caught = None
+
+            with patch.object(
+                storage_module.os,
+                "fsync",
+                side_effect=OSError("file fsync failure"),
+            ):
+                try:
+                    AtomicArtifactStore().publish_manifest(
+                        target,
+                        {"schema_version": 1},
+                    )
+                except Exception as error:
+                    caught = (type(error), getattr(error, "exit_code", None), str(error))
+
+            self.assertEqual(
+                (
+                    caught,
+                    target.read_bytes(),
+                    list(target.parent.glob(f".{target.name}.*.tmp")),
+                ),
+                (
+                    (ContractError, 1, f"manifest 檔案 fsync 失敗：{target}"),
                     b"old manifest\n",
                     [],
                 ),
