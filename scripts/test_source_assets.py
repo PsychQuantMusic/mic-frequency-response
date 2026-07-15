@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -14,11 +16,20 @@ import source_assets_lib.storage as storage_module
 import source_assets_lib.network as network_module
 from source_assets_lib.network import (
     DownloadRequest,
+    DownloadResult,
     PinnedHTTPSClient,
     PinnedTLSConnector,
     RemoteHTTPError,
     URLPolicy,
     resolve_public_addresses,
+)
+from source_assets_lib.commands import (
+    CommandContext,
+    OperationSummary,
+    Selector,
+    bootstrap,
+    fetch,
+    verify,
 )
 from source_assets_lib import (
     AtomicArtifactStore,
@@ -233,17 +244,779 @@ class _RecordingBinaryHandle:
         return self._handle.flush()
 
 
+class StaticTransport:
+    def __init__(self, body=b"%PDF-1.7\n"):
+        self.body = body
+        self.calls = []
+
+    def download(self, request, target):
+        self.calls.append(request)
+        target.write(self.body)
+        return DownloadResult(
+            final_url=request.url,
+            size_bytes=len(self.body),
+            sha256=hashlib.sha256(self.body).hexdigest(),
+            content_type=request.expected_media_type,
+            status=200,
+        )
+
+
+class ErrorTransport:
+    def __init__(self, error):
+        self.error = error
+
+    def download(self, request, target):
+        raise self.error
+
+
+class SequenceTransport:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = []
+
+    def download(self, request, target):
+        self.calls.append(request)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        target.write(outcome)
+        return DownloadResult(
+            final_url=request.url,
+            size_bytes=len(outcome),
+            sha256=hashlib.sha256(outcome).hexdigest(),
+            content_type=request.expected_media_type,
+            status=200,
+        )
+
+
+class RecordingArtifactStore:
+    def __init__(self):
+        self.delegate = storage_module.AtomicArtifactStore()
+        self.events = []
+
+    def publish_blob(self, target, media_type, producer):
+        result = self.delegate.publish_blob(target, media_type, producer)
+        self.events.append(("blob", target))
+        return result
+
+    def publish_manifest(self, target, document):
+        self.events.append(("manifest", target))
+        return self.delegate.publish_manifest(target, document)
+
+
+class FailingManifestStore:
+    def __init__(self):
+        self.delegate = storage_module.AtomicArtifactStore()
+
+    def publish_blob(self, target, media_type, producer):
+        return self.delegate.publish_blob(target, media_type, producer)
+
+    def publish_manifest(self, target, document):
+        raise ContractError("manifest 寫入失敗")
+
+
+def _make_pending_lifecycle_repo(root, *, create_source=True):
+    root = Path(root)
+    config = root / "config"
+    config.mkdir()
+    (config / "source-hosts.json").write_text(
+        json.dumps({"schema_version": 1, "hosts": ["pubs.shure.com"]}),
+        encoding="utf-8",
+    )
+    (config / "source-url-redactions.json").write_text(
+        json.dumps({"schema_version": 1, "entries": []}),
+        encoding="utf-8",
+    )
+    document = _load_fixture("pending-pdf.json")
+    mic_dir = _make_mic_dir(root, document)
+    if create_source:
+        (mic_dir / "source").mkdir()
+    manifest = mic_dir / "source-manifest.json"
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+    return mic_dir, manifest
+
+
+def _make_available_svg_repo(root, *, body=b'<svg xmlns="http://www.w3.org/2000/svg"/>', present=False):
+    mic_dir, manifest = _make_pending_lifecycle_repo(root)
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    artifact = document["artifacts"][0]
+    artifact.update(
+        {
+            "availability": "available",
+            "local_path": "source/original.svg",
+            "media_type": "image/svg+xml",
+            "size_bytes": len(body),
+            "sha256": hashlib.sha256(body).hexdigest(),
+            "retrieved_at": "2026-07-15T12:00:00Z",
+        }
+    )
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+    target = mic_dir / "source" / "original.svg"
+    if present:
+        target.write_bytes(body)
+    return mic_dir, manifest, target, body
+
+
+def _make_unavailable_repo(root):
+    mic_dir, manifest = _make_pending_lifecycle_repo(root)
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    artifact = document["artifacts"][0]
+    artifact["availability"] = "unavailable"
+    artifact["checked_at"] = "2026-07-15T12:00:00Z"
+    artifact["reason"] = "遠端 HTTP 404"
+    artifact.pop("local_path")
+    artifact.pop("media_type")
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+    return mic_dir, manifest
+
+
 class InterfaceExistenceTests(unittest.TestCase):
     def test_production_modules_exist(self):
         library = Path(__file__).parent / "source_assets_lib"
         expected = [
             library / "__init__.py",
+            library / "commands.py",
             library / "model.py",
             library / "network.py",
             library / "storage.py",
+            Path(__file__).parent / "source_assets.py",
         ]
         missing_paths = [str(path) for path in expected if not path.is_file()]
         self.assertEqual(missing_paths, [])
+
+
+class LifecycleCommandTests(unittest.TestCase):
+    def test_selector_mic_rejects_path_traversal_and_non_slug_values(self):
+        accepted = []
+        for value in ("../outside", "shure/sm58", "", "Shure-SM58", "."):
+            try:
+                Selector.mic(value)
+            except ContractError:
+                continue
+            accepted.append(value)
+
+        self.assertEqual(accepted, [])
+
+    def test_bootstrap_changes_pending_pdf_to_available(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(summary.exit_code, 0)
+            self.assertEqual(document["artifacts"][0]["availability"], "available")
+            self.assertEqual((mic_dir / "source" / "original.pdf").read_bytes(), transport.body)
+
+    def test_bootstrap_publishes_artifact_before_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            store = RecordingArtifactStore()
+            context = CommandContext(
+                transport=StaticTransport(),
+                store=store,
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(summary.exit_code, 0)
+            self.assertEqual(
+                store.events,
+                [
+                    ("blob", mic_dir / "source" / "original.pdf"),
+                    ("manifest", manifest),
+                ],
+            )
+
+    def test_bootstrap_classifies_http_not_found_as_unavailable(self):
+        observed = []
+        for status in (404, 410):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as td:
+                _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+                context = CommandContext(
+                    transport=ErrorTransport(
+                        RemoteHTTPError(status, "https://pubs.shure.com/manual.pdf")
+                    ),
+                    store=storage_module.AtomicArtifactStore(),
+                    now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+                )
+
+                try:
+                    summary = bootstrap(Path(td), Selector.all(), True, context)
+                except SourceAssetError as error:
+                    observed.append(type(error).__name__)
+                else:
+                    document = json.loads(manifest.read_text(encoding="utf-8"))
+                    artifact = document["artifacts"][0]
+                    observed.append(
+                        (
+                            summary,
+                            artifact["availability"],
+                            artifact.get("checked_at"),
+                            "local_path" in artifact,
+                        )
+                    )
+
+        self.assertEqual(
+            observed,
+            [
+                (OperationSummary(0, 1, 0, 0), "unavailable", "2026-07-15T12:00:00Z", False),
+                (OperationSummary(0, 1, 0, 0), "unavailable", "2026-07-15T12:00:00Z", False),
+            ],
+        )
+
+    def test_bootstrap_classifies_unavailable_manifest_write_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            original = manifest.read_bytes()
+            context = CommandContext(
+                transport=ErrorTransport(
+                    RemoteHTTPError(404, "https://pubs.shure.com/manual.pdf")
+                ),
+                store=FailingManifestStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+            try:
+                summary = bootstrap(Path(td), Selector.all(), True, context)
+            except SourceAssetError as error:
+                summary = type(error).__name__
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(manifest.read_bytes(), original)
+
+    def test_bootstrap_keeps_transient_remote_failures_pending(self):
+        failures = [
+            RemoteHTTPError(status, "https://pubs.shure.com/manual.pdf")
+            for status in (401, 403, 429, 500, 503)
+        ] + [RemoteError("遠端連線逾時")]
+        observed = []
+        for failure in failures:
+            with self.subTest(failure=str(failure)), tempfile.TemporaryDirectory() as td:
+                _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+                original = manifest.read_bytes()
+                context = CommandContext(
+                    transport=ErrorTransport(failure),
+                    store=storage_module.AtomicArtifactStore(),
+                    now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+                )
+                try:
+                    summary = bootstrap(Path(td), Selector.all(), True, context)
+                except SourceAssetError as error:
+                    observed.append(type(error).__name__)
+                else:
+                    observed.append((summary, manifest.read_bytes() == original))
+
+        self.assertEqual(
+            observed,
+            [(OperationSummary(0, 0, 1, 2), True)] * len(failures),
+        )
+
+    def test_bootstrap_requires_accept_new_without_contacting_remote(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            original = manifest.read_bytes()
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), False, context)
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(transport.calls, [])
+            self.assertEqual(manifest.read_bytes(), original)
+
+    def test_bootstrap_creates_missing_source_directory_before_atomic_publish(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, _manifest = _make_pending_lifecycle_repo(td, create_source=False)
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+            try:
+                summary = bootstrap(Path(td), Selector.all(), True, context)
+            except OSError as error:
+                observed = type(error).__name__
+            else:
+                observed = (
+                    summary,
+                    (mic_dir / "source").is_dir(),
+                    (mic_dir / "source" / "original.pdf").read_bytes(),
+                )
+
+            self.assertEqual(
+                observed,
+                (OperationSummary(1, 0, 0, 0), True, transport.body),
+            )
+
+    def test_bootstrap_rejects_unsafe_source_directory_without_network(self):
+        observed = []
+        for kind in ("file", "symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:
+                mic_dir, manifest = _make_pending_lifecycle_repo(td, create_source=False)
+                source_dir = mic_dir / "source"
+                if kind == "file":
+                    source_dir.write_text("not a directory", encoding="utf-8")
+                else:
+                    outside = Path(td) / "outside"
+                    outside.mkdir()
+                    source_dir.symlink_to(outside, target_is_directory=True)
+                original = manifest.read_bytes()
+                transport = StaticTransport()
+                context = CommandContext(
+                    transport=transport,
+                    store=storage_module.AtomicArtifactStore(),
+                    now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+                )
+                try:
+                    summary = bootstrap(Path(td), Selector.all(), True, context)
+                except SourceAssetError as error:
+                    observed.append(type(error).__name__)
+                else:
+                    observed.append(
+                        (summary, transport.calls, manifest.read_bytes() == original)
+                    )
+
+        self.assertEqual(
+            observed,
+            [(OperationSummary(0, 0, 1, 1), [], True)] * 2,
+        )
+
+    def test_bootstrap_rejects_symlinked_microphone_directory_without_network(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, _manifest = _make_pending_lifecycle_repo(td)
+            outside_parent = Path(td) / "outside"
+            outside_parent.mkdir()
+            outside_mic = outside_parent / mic_dir.name
+            mic_dir.rename(outside_mic)
+            mic_dir.symlink_to(outside_mic, target_is_directory=True)
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(transport.calls, [])
+            self.assertFalse((outside_mic / "source" / "original.pdf").exists())
+
+    def test_bootstrap_classifies_source_directory_io_failure_without_network(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            original = manifest.read_bytes()
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+            with patch.object(Path, "mkdir", side_effect=OSError("permission denied")):
+                try:
+                    summary = bootstrap(Path(td), Selector.all(), True, context)
+                except OSError as error:
+                    summary = type(error).__name__
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(transport.calls, [])
+            self.assertEqual(manifest.read_bytes(), original)
+
+    def test_bootstrap_rejects_naive_clock_before_download(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            original = manifest.read_bytes()
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(transport.calls, [])
+            self.assertEqual(manifest.read_bytes(), original)
+
+    def test_bootstrap_fails_closed_on_invalid_policy_config(self):
+        observed = []
+        kinds = (
+            "missing",
+            "malformed",
+            "wrong-version",
+            "bool-version",
+            "invalid-hosts",
+            "unknown-host-field",
+            "invalid-redactions",
+            "unknown-redaction-field",
+            "duplicate-redaction-id",
+        )
+        for kind in kinds:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:
+                _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+                original = manifest.read_bytes()
+                hosts_path = Path(td) / "config" / "source-hosts.json"
+                redactions_path = Path(td) / "config" / "source-url-redactions.json"
+                if kind == "missing":
+                    hosts_path.unlink()
+                elif kind == "malformed":
+                    hosts_path.write_text("{", encoding="utf-8")
+                elif kind == "wrong-version":
+                    hosts_path.write_text(
+                        json.dumps({"schema_version": 2, "hosts": ["pubs.shure.com"]}),
+                        encoding="utf-8",
+                    )
+                elif kind == "bool-version":
+                    hosts_path.write_text(
+                        json.dumps({"schema_version": True, "hosts": ["pubs.shure.com"]}),
+                        encoding="utf-8",
+                    )
+                elif kind == "invalid-hosts":
+                    hosts_path.write_text(
+                        json.dumps({"schema_version": 1, "hosts": "pubs.shure.com"}),
+                        encoding="utf-8",
+                    )
+                elif kind == "unknown-host-field":
+                    hosts_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": 1,
+                                "hosts": ["pubs.shure.com"],
+                                "unknown": True,
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                elif kind == "invalid-redactions":
+                    redactions_path.write_text(
+                        json.dumps({"schema_version": 1, "entries": [{"id": "incomplete"}]}),
+                        encoding="utf-8",
+                    )
+                else:
+                    record = _load_fixture("redaction-no-stable-endpoint.json")["entries"][0]
+                    record = {**record, "mic_slug": "shure-sm58"}
+                    if kind == "unknown-redaction-field":
+                        record["raw_url"] = "https://example.invalid/?token=secret"
+                        entries = [record]
+                    else:
+                        entries = [record, dict(record)]
+                    redactions_path.write_text(
+                        json.dumps({"schema_version": 1, "entries": entries}),
+                        encoding="utf-8",
+                    )
+                transport = StaticTransport()
+                context = CommandContext(
+                    transport=transport,
+                    store=storage_module.AtomicArtifactStore(),
+                    now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+                )
+                try:
+                    summary = bootstrap(Path(td), Selector.all(), True, context)
+                except BaseException as error:
+                    observed.append(type(error).__name__)
+                else:
+                    observed.append(
+                        (summary, transport.calls, manifest.read_bytes() == original)
+                    )
+
+        self.assertEqual(
+            observed,
+            [(OperationSummary(0, 0, 1, 1), [], True)] * len(kinds),
+        )
+
+    def test_bootstrap_continues_batch_and_uses_numeric_max_exit_code(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, _manifest = _make_pending_lifecycle_repo(td)
+            data_dir = Path(td) / "data"
+            template = data_dir / "shure-sm58"
+            for slug in ("a-remote", "b-success", "c-unsafe"):
+                destination = data_dir / slug
+                shutil.copytree(template, destination)
+                manifest = destination / "source-manifest.json"
+                document = json.loads(manifest.read_text(encoding="utf-8"))
+                document["mic_slug"] = slug
+                manifest.write_text(json.dumps(document), encoding="utf-8")
+            shutil.rmtree(template)
+            shutil.rmtree(data_dir / "c-unsafe" / "source")
+            (data_dir / "c-unsafe" / "source").write_text("unsafe", encoding="utf-8")
+            body = b"%PDF-1.7\nsuccess\n"
+            transport = SequenceTransport([RemoteError("遠端連線失敗"), body])
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(summary, OperationSummary(1, 0, 2, 2))
+            self.assertEqual(len(transport.calls), 2)
+            states = {
+                slug: json.loads(
+                    (data_dir / slug / "source-manifest.json").read_text(encoding="utf-8")
+                )["artifacts"][0]["availability"]
+                for slug in ("a-remote", "b-success", "c-unsafe")
+            }
+            self.assertEqual(
+                states,
+                {"a-remote": "pending", "b-success": "available", "c-unsafe": "pending"},
+            )
+
+    def test_bootstrap_preserves_mismatched_orphan_and_pending_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            orphan = mic_dir / "source" / "original.pdf"
+            orphan_body = b"%PDF-1.7\nexisting orphan\n"
+            orphan.write_bytes(orphan_body)
+            original_manifest = manifest.read_bytes()
+            transport = StaticTransport(b"%PDF-1.7\ndifferent remote\n")
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 2))
+            self.assertEqual(orphan.read_bytes(), orphan_body)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+            self.assertEqual(len(transport.calls), 1)
+            self.assertEqual(list(orphan.parent.glob(".*.tmp")), [])
+
+    def test_bootstrap_does_not_classify_orphan_as_unavailable_on_remote_404(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            orphan = mic_dir / "source" / "original.pdf"
+            orphan_body = b"%PDF-1.7\nexisting orphan\n"
+            orphan.write_bytes(orphan_body)
+            original_manifest = manifest.read_bytes()
+            context = CommandContext(
+                transport=ErrorTransport(
+                    RemoteHTTPError(404, "https://pubs.shure.com/manual.pdf")
+                ),
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 2))
+            self.assertEqual(orphan.read_bytes(), orphan_body)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+
+    def test_bootstrap_adopts_only_an_exact_redownloaded_orphan(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            orphan = mic_dir / "source" / "original.pdf"
+            orphan_body = b"%PDF-1.7\nexact orphan\n"
+            orphan.write_bytes(orphan_body)
+            transport = StaticTransport(orphan_body)
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 20, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+            artifact = json.loads(manifest.read_text(encoding="utf-8"))["artifacts"][0]
+
+            self.assertEqual(summary, OperationSummary(1, 0, 0, 0))
+            self.assertEqual(orphan.read_bytes(), orphan_body)
+            self.assertEqual(artifact["availability"], "available")
+            self.assertEqual(artifact["size_bytes"], len(orphan_body))
+            self.assertEqual(artifact["sha256"], hashlib.sha256(orphan_body).hexdigest())
+            self.assertEqual(artifact["retrieved_at"], "2026-07-15T20:00:00Z")
+
+    def test_bootstrap_rerun_after_manifest_directory_fsync_does_not_redownload(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+            with patch.object(
+                storage_module,
+                "_fsync_directory",
+                side_effect=[None, OSError("manifest directory fsync failed")],
+            ):
+                try:
+                    first = bootstrap(Path(td), Selector.all(), True, context)
+                except SourceAssetError as error:
+                    first = type(error).__name__
+
+            second = bootstrap(Path(td), Selector.all(), True, context)
+            artifact = json.loads(manifest.read_text(encoding="utf-8"))["artifacts"][0]
+
+            self.assertEqual(first, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(second, OperationSummary(1, 0, 0, 0))
+            self.assertEqual(len(transport.calls), 1)
+            self.assertEqual(artifact["availability"], "available")
+
+    def test_fetch_restores_missing_available_original_from_pinned_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest, target, body = _make_available_svg_repo(td)
+            original_manifest = manifest.read_bytes()
+            transport = StaticTransport(body)
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = fetch(Path(td), Selector.all(), context)
+
+            self.assertEqual(summary, OperationSummary(1, 0, 0, 0))
+            self.assertEqual(target.read_bytes(), body)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+            self.assertEqual(len(transport.calls), 1)
+            request = transport.calls[0]
+            self.assertEqual(request.expected_size, len(body))
+            self.assertEqual(request.max_size, len(body))
+            self.assertEqual(request.expected_sha256, hashlib.sha256(body).hexdigest())
+
+    def test_fetch_never_contacts_remote_or_overwrites_an_existing_target(self):
+        observed = []
+        for state in ("exact", "mismatch"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as td:
+                _mic_dir, manifest, target, body = _make_available_svg_repo(
+                    td,
+                    present=True,
+                )
+                if state == "mismatch":
+                    target.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg"><text>x</text></svg>')
+                original_target = target.read_bytes()
+                original_manifest = manifest.read_bytes()
+                transport = StaticTransport(body)
+                context = CommandContext(
+                    transport=transport,
+                    store=storage_module.AtomicArtifactStore(),
+                    now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+                )
+
+                summary = fetch(Path(td), Selector.all(), context)
+                observed.append(
+                    (
+                        summary,
+                        transport.calls,
+                        target.read_bytes() == original_target,
+                        manifest.read_bytes() == original_manifest,
+                    )
+                )
+
+        self.assertEqual(
+            observed,
+            [
+                (OperationSummary(1, 0, 0, 0), [], True, True),
+                (OperationSummary(0, 0, 1, 2), [], True, True),
+            ],
+        )
+
+    def test_verify_is_offline_and_read_only_for_valid_local_artifacts(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest, target, body = _make_available_svg_repo(
+                td,
+                present=True,
+            )
+            before = {
+                path.relative_to(td): (path.stat().st_mtime_ns, path.read_bytes())
+                for path in Path(td).rglob("*")
+                if path.is_file()
+            }
+
+            with (
+                patch.object(
+                    network_module,
+                    "resolve_public_addresses",
+                    side_effect=AssertionError("verify 不得解析 DNS"),
+                ),
+                patch.object(
+                    network_module.socket,
+                    "getaddrinfo",
+                    side_effect=AssertionError("verify 不得建立網路連線"),
+                ),
+            ):
+                summary = verify(Path(td), Selector.all())
+
+            after = {
+                path.relative_to(td): (path.stat().st_mtime_ns, path.read_bytes())
+                for path in Path(td).rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(summary, OperationSummary(1, 0, 0, 0))
+            self.assertEqual(after, before)
+            self.assertEqual(target.read_bytes(), body)
+            self.assertEqual(manifest.parent, mic_dir)
+
+    def test_verify_classifies_local_integrity_failures_and_unavailable_entries(self):
+        observed = []
+        for state in ("missing", "hash-mismatch", "signature-mismatch"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as td:
+                _mic_dir, _manifest, target, _body = _make_available_svg_repo(
+                    td,
+                    present=state != "missing",
+                )
+                if state == "hash-mismatch":
+                    target.write_bytes(
+                        b'<svg xmlns="http://www.w3.org/2000/svg"><text>x</text></svg>'
+                    )
+                elif state == "signature-mismatch":
+                    target.write_bytes(b"not an svg")
+                observed.append(verify(Path(td), Selector.all()))
+
+        with tempfile.TemporaryDirectory() as td:
+            _make_unavailable_repo(td)
+            unavailable_summary = verify(Path(td), Selector.all())
+
+        self.assertEqual(observed, [OperationSummary(0, 0, 1, 2)] * 3)
+        self.assertEqual(unavailable_summary, OperationSummary(0, 1, 0, 0))
+
+    def test_lifecycle_commands_fail_when_selector_has_no_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            config = Path(td) / "config"
+            config.mkdir()
+            (config / "source-hosts.json").write_text(
+                json.dumps({"schema_version": 1, "hosts": ["pubs.shure.com"]}),
+                encoding="utf-8",
+            )
+            (config / "source-url-redactions.json").write_text(
+                json.dumps({"schema_version": 1, "entries": []}),
+                encoding="utf-8",
+            )
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summaries = (
+                bootstrap(Path(td), Selector.all(), True, context),
+                fetch(Path(td), Selector.all(), context),
+                verify(Path(td), Selector.all()),
+            )
+
+            self.assertEqual(summaries, (OperationSummary(0, 0, 1, 1),) * 3)
+            self.assertEqual(transport.calls, [])
+
+
+class CLITests(unittest.TestCase):
+    pass
 
 
 class NetworkPolicyTests(unittest.TestCase):
