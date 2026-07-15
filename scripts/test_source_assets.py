@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import source_assets_lib.storage as storage_module
+from source_assets_lib.network import RemoteHTTPError, URLPolicy
 from source_assets_lib import (
     AtomicArtifactStore,
     ContractError,
@@ -81,9 +82,122 @@ class _RecordingBinaryHandle:
 class InterfaceExistenceTests(unittest.TestCase):
     def test_production_modules_exist(self):
         library = Path(__file__).parent / "source_assets_lib"
-        expected = [library / "__init__.py", library / "model.py", library / "storage.py"]
+        expected = [
+            library / "__init__.py",
+            library / "model.py",
+            library / "network.py",
+            library / "storage.py",
+        ]
         missing_paths = [str(path) for path in expected if not path.is_file()]
         self.assertEqual(missing_paths, [])
+
+
+class NetworkPolicyTests(unittest.TestCase):
+    def test_parse_rejects_control_characters_before_urlsplit_normalization(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://pubs.shure.com/manual.pdf\r\nX-Injected: yes",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_remote_http_error_redacts_credential_query_values(self):
+        error = RemoteHTTPError(
+            403,
+            "https://pubs.shure.com/manual.pdf?token=top-secret&id=968996",
+        )
+
+        self.assertEqual(error.status, 403)
+        self.assertNotIn("top-secret", str(error))
+        self.assertNotIn("top-secret", error.redacted_url)
+        self.assertIn("token=%3Credacted%3E", error.redacted_url)
+        self.assertIn("id=968996", error.redacted_url)
+
+    def test_parse_rejects_http_downgrade(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "http://pubs.shure.com/manual.pdf",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_parse_rejects_non_443_port(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://pubs.shure.com:8443/manual.pdf",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_parse_rejects_ip_literals(self):
+        urls_and_hosts = (
+            ("https://93.184.216.34/manual.pdf", frozenset({"93.184.216.34"})),
+            ("https://[2606:2800:220:1:248:1893:25c8:1946]/manual.pdf", frozenset({"2606:2800:220:1:248:1893:25c8:1946"})),
+        )
+        accepted = []
+        for url, hosts in urls_and_hosts:
+            try:
+                URLPolicy.parse(url, hosts)
+            except ContractError:
+                continue
+            accepted.append(url)
+
+        self.assertEqual(accepted, [])
+
+    def test_parse_rejects_fragment(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://pubs.shure.com/manual.pdf#page=3",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_parse_accepts_harmless_query_and_preserves_request_target(self):
+        parsed = URLPolicy.parse(
+            "https://pubs.shure.com/manual.pdf?id=968996",
+            frozenset({"pubs.shure.com"}),
+        )
+
+        self.assertEqual(parsed.request_target, "/manual.pdf?id=968996")
+        self.assertEqual(parsed.normalized_url, "https://pubs.shure.com/manual.pdf?id=968996")
+
+    def test_parse_rejects_signed_credential_query_keys_case_insensitively(self):
+        query_keys = ("token", "SIG", "Signature", "expires", "X-Amz-Signature", "x-goog-token")
+        accepted = []
+        for key in query_keys:
+            try:
+                URLPolicy.parse(
+                    f"https://pubs.shure.com/manual.pdf?{key}=secret",
+                    frozenset({"pubs.shure.com"}),
+                )
+            except ContractError:
+                continue
+            accepted.append(key)
+
+        self.assertEqual(accepted, [])
+
+    def test_parse_normalizes_hostname_to_lowercase_idna_without_trailing_dot(self):
+        parsed = URLPolicy.parse(
+            "https://BÜCHER.Example./manual.pdf",
+            frozenset({"xn--bcher-kva.example"}),
+        )
+
+        self.assertEqual(parsed.hostname, "xn--bcher-kva.example")
+        self.assertEqual(parsed.normalized_url, "https://xn--bcher-kva.example/manual.pdf")
+
+    def test_parse_requires_exact_allowed_host(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://cdn.pubs.shure.com/manual.pdf",
+                frozenset({"pubs.shure.com"}),
+            )
+
+    def test_parse_rejects_user_info(self):
+        with self.assertRaises(ContractError):
+            URLPolicy.parse(
+                "https://user:password@pubs.shure.com/manual.pdf",
+                frozenset({"pubs.shure.com"}),
+            )
+
+
+class PinnedHTTPSTests(unittest.TestCase):
+    pass
 
 
 class StorageContractTests(unittest.TestCase):
