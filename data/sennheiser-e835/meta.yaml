@@ -24,6 +24,12 @@ method: >
   降採樣（165 點）。best-effort ±0.5 dB。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 153
+    formal_frequency_span_hz: [41.618, 15948.484]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: "on-axis (0°, 1 m) typical response, relative to -50 dBV gridline (0 dB)"
 polar_note: >
   官方 p.2 有發表 polar pattern，為「8 條彩色曲線的左右半分圖」：左半（cyan）125/250/500/1000 Hz、
@@ -31,6 +37,11 @@ polar_note: >
   同色群組曲線在前方近乎重合、以難分辨的虛線樣式交疊；此密度下無法在 facts-only 標準下可靠地
   逐頻分離判讀，故本批**未** digitize polar 各曲線（誠實跳過優於輸出不可靠數據）。FR 已捕捉主要頻譜行為。
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--typical.csv]
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14)"
   date: 2026-07-09
   result: >

@@ -2,8 +2,8 @@
 //
 // data-schema.test.js 只驗格式（header/兩欄/遞增/finite），不驗任何值。本測試補上值的
 // 回歸網：每條 frequency-response*.csv 有一份 data/<slug>/anchors.yaml，內含 3-5 個
-// (freq_hz, expected_db, tol_db) 手選特徵/參考點（由 scripts/gen_anchors.py 從已通過
-// overlay 驗證的 CSV 取 golden snapshot）。這裡對 CSV 做「與產生器逐字相同」的 log-f 內插，
+// (freq_hz, expected_db, tol_db) 自動產生的回歸參考點（由 scripts/gen_anchors.py 從已通過
+// overlay 驗證的 CSV 取 golden snapshot；它不是獨立原廠證據）。這裡對 CSV 做「與產生器逐字相同」的 log-f 內插，
 // 斷言 |interp − expected| ≤ tol。CSV 值一被改壞（typo / 腳本 bug / CRLF / 換錯支資料），
 // 內插值漂出容差即 fail —— 不需原廠圖、可上 CI。誠實邊界：spot-check 非全曲線，抓值崩壞/
 // 特徵錯位，抓不到兩 anchor 間細微竄改（見 issue #18 診斷）。

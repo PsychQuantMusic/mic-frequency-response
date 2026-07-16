@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "mic_slug": "shure-sm58",
+  "references": [],
+  "artifacts": [
+    {
+      "id": "official-specification",
+      "role": "original",
+      "availability": "pending",
+      "source_url": "https://pubs.shure.com/manual.pdf",
+      "local_path": "source/original.pdf",
+      "media_type": "application/pdf",
+      "curve_files": [
+        "frequency-response--typical.csv"
+      ],
+      "redistribution": "local-only",
+      "allowed_hosts": [
+        "pubs.shure.com"
+      ]
+    }
+  ]
+}

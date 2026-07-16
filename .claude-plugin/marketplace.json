@@ -8,7 +8,7 @@
     {
       "name": "mic-frequency-response",
       "source": "./",
-      "description": "Digitize microphone frequency-response charts into a queryable CSV database — a zero-dependency web Digitizer (semi-automatic pixel tracing) plus an AI-visual-reading skill for real gridded manufacturer charts. Covers frequency-response AND polar-pattern charts. Ships example data (Shure SM58, Audio-Technica AT2020: FR + 6/4 polar frequencies each)."
+      "description": "Build a queryable microphone response database from manufacturer numeric values or algorithmically digitized official charts. Includes a zero-dependency seeded pixel Digitizer and skills for frequency-response and polar-pattern data. Per-curve origin, method, and reproduction status are required; manual/AI visual point estimates are rejected from formal data."
     }
   ]
 }

@@ -30,6 +30,12 @@ method: >
   cal-y 78px=-40dBV, 518px=-90dBV.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 160
+    formal_frequency_span_hz: [39.493, 20000.0]
+    verification_relation: current-csv-directly-verified
     condition: >
       on-axis, linear/flat reference setting: brilliance (treble-boost) switch OFF +
       bass roll-off switch = M (music, full/flattest bass). Relative to flat plateau
@@ -44,6 +50,7 @@ switch_note: >
   as the solid line here); (c) the on-axis FR beside the polar plot. Only the flat
   reference (brilliance OFF, bass M) is captured here.
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated)"
   date: 2026-07-09
   result: >

@@ -32,6 +32,12 @@ method: >
   correct (rules out a log-axis whole-decade factor shift).
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 55
+    formal_frequency_span_hz: [50.056, 19852.454]
+    verification_relation: current-csv-directly-verified
     condition: "typical on-axis response, Contour Switch = FLAT (solid curve as published)"
 notes: >
   Only the FLAT/typical (solid) curve is digitized here. The chart's second curve
@@ -40,6 +46,7 @@ notes: >
   (~-1.7 dB @ 50 Hz to 0 dB @ ~900 Hz), broad presence peak ≈ +4.6 dB at ~7.9 kHz,
   sharp drop past ~9 kHz, small secondary bump ~13 kHz, HF rolloff to ~-4.5 dB @ 20 kHz.
 verification:
+  curves: [frequency-response--typical.csv]
   method: >
     (1) overlay_verify.py --interpolated vs the ORIGINAL (un-masked) chart; and
     (2) an independent nearest-dark-pixel check of the CSV vs the isolated SOLID line

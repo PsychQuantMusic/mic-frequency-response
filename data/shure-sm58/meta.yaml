@@ -14,37 +14,23 @@ method: >
   【#14 再生 2026-07-09】FR 曲線以 seeded-viterbi trace 全解析度重新數位化並以
   --simplify 0.05 dB 感知無損降採樣（90 點）；重繪保真驗證（overlay --interpolated，
   沿內插折線逐欄比對）：median 0.017 / max 0.122 dB over 1008 measured cols（32 ambiguous=垂直網格欄），零 gap。
-  以下為原 AI 判讀方法紀錄（historical）。
-  polar 資料維持原判讀密度（shape-summary 級，非重繪級——加密為 #14 Residue）。
-  AI 視覺判讀官方頻響圖。未使用 digitizer/ 的 pixel-trace：Shure 官方圖有同色（黑）
-  網格線橫跨每一欄，會污染 MVP 的全欄質心 tracer（見 #3 Phase 2 robust tracing）。
-  數值為 best-effort 判讀（典型 ±0.5 dB，陡峭段誤差較大）。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 89
+    formal_frequency_span_hz: [50.077, 14846.801]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: "typical on-axis response (as published)"
-  # kind 缺省 = frequency-response（向後相容）
-  - { file: polar-pattern--125hz.csv,  kind: polar-pattern, condition: "125 Hz (user guide p.6 'Typical SM58 Polar Pattern', left chart, solid)" }
-  - { file: polar-pattern--500hz.csv,  kind: polar-pattern, condition: "500 Hz (left chart, dotted)" }
-  - { file: polar-pattern--1000hz.csv, kind: polar-pattern, condition: "1000 Hz (left chart, dashed)" }
-  - { file: polar-pattern--2000hz.csv, kind: polar-pattern, condition: "2000 Hz (right chart, solid)" }
-  - { file: polar-pattern--4000hz.csv, kind: polar-pattern, condition: "4000 Hz (right chart, dotted)" }
-  - { file: polar-pattern--8000hz.csv, kind: polar-pattern, condition: "8000 Hz (right chart, dashed)" }
-polar_read_note: >
-  AI 視覺判讀，30° 取樣、精度 ±1.5 dB（小圖多曲線）。0° = on-axis；
-  發表圖左右對稱，記錄 0–180° 半平面即完整（外圈 0dB、5dB/圈）。
 verification:
-  method: "overlay vs original chart (scripts/overlay_verify.py, #6)"
-  date: 2026-07-08
-  result: "median |dev| 0.29 dB, max 0.81 dB, 30/30 points within ±1.0 dB"
-  note: >
-    首輪驗證抓到陡降段 2 點偏差（11k/12.5k, +1.3~1.5 dB），依 overlay 回饋重讀修正後全數過檻。
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--typical.csv]
+  method: "interpolated overlay vs original chart (scripts/overlay_verify.py --interpolated, #14)"
+  date: 2026-07-09
+  result: "median |dev| 0.017 dB, max 0.122 dB over 1008 measured columns; zero gaps, 32 ambiguous columns"
 license_note: >
   數據為事實資料（frequency→dB），從公開官方圖判讀，非原圖之重製。原圖（PDF/PNG）未收錄進 repo。
-polar_verification:
-  method: "polar overlay vs original charts (scripts/overlay_verify.py --polar, #7)"
-  date: 2026-07-08
-  result: >
-    6 curves quantified (window ±25px ≈ ±2dB, spoke-avoid ±3°): median |dev| 0.40–0.79 dB,
-    max ≤ 1.47 dB — within declared ±1.5 dB. First round caught 6 points (1k@120°, 2k@60°/180°,
-    4k@60°/90°, 8k@150°) read low/high in crowded multi-curve regions; corrected per overlay.
-  note: "多曲線圖量化有 match 歧義（skill 文件化限制）；視覺 overlay 為主判。"

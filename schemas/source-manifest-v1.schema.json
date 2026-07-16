@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psychquantmusic.github.io/mic-frequency-response/schemas/source-manifest-v1.schema.json",
+  "$defs": {
+    "utcTimestamp": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[0-9]{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12][0-9]|3[01])|(?:0[469]|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+        },
+        {
+          "pattern": "^(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|(?:0[48]|[2468][048]|[13579][26])00)-02-29T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+        }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifactId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "httpsUrl": {
+      "type": "string",
+      "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:[.][A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*(?::[0-9]{1,5})?(?:/[^\u0000-\u0020\u007F?#]*)?(?:[?][^\u0000-\u0020\u007F#]*)?$"
+    },
+    "curveFiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[^/]+[.]csv$"
+      }
+    },
+    "allowedHosts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "sizeBytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "pageDerivation": {
+      "type": "object",
+      "required": ["page", "render_dpi", "render_tool", "render_tool_version"],
+      "properties": {
+        "page": { "type": "integer", "minimum": 1 },
+        "render_dpi": { "const": 300 },
+        "render_tool": { "type": "string", "minLength": 1 },
+        "render_tool_version": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "cropDerivation": {
+      "type": "object",
+      "required": ["crop_box_px", "crop_tool", "crop_tool_version"],
+      "properties": {
+        "crop_box_px": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "integer", "minimum": 0 }
+        },
+        "crop_tool": { "type": "string", "minLength": 1 },
+        "crop_tool_version": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["schema_version", "mic_slug", "references", "artifacts"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "mic_slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "url"],
+        "properties": {
+          "role": {
+            "enum": ["product-page", "landing-page", "documentation-page"]
+          },
+          "url": { "$ref": "#/$defs/httpsUrl" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["id", "role", "availability", "source_url", "curve_files", "redistribution", "allowed_hosts"],
+            "properties": {
+              "id": { "$ref": "#/$defs/artifactId" },
+              "role": { "const": "original" },
+              "availability": { "const": "pending" },
+              "source_url": { "$ref": "#/$defs/httpsUrl" },
+              "local_path": { "type": "string" },
+              "media_type": { "type": "string" },
+              "curve_files": { "$ref": "#/$defs/curveFiles" },
+              "redistribution": { "const": "local-only" },
+              "allowed_hosts": { "$ref": "#/$defs/allowedHosts" },
+              "size_bytes": false,
+              "sha256": false,
+              "retrieved_at": false,
+              "checked_at": false,
+              "reason": false,
+              "redaction_ref": false,
+              "generated_at": false,
+              "derived_from": false,
+              "derived_from_sha256": false,
+              "derivation": false
+            },
+            "oneOf": [
+              {
+                "required": ["local_path", "media_type"],
+                "properties": {
+                  "local_path": { "type": "string", "pattern": "^source/.+[.]pdf$" },
+                  "media_type": { "const": "application/pdf" }
+                }
+              },
+              {
+                "required": ["local_path", "media_type"],
+                "properties": {
+                  "local_path": { "type": "string", "pattern": "^source/.+[.]svg$" },
+                  "media_type": { "const": "image/svg+xml" }
+                }
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["id", "role", "availability", "source_url", "curve_files", "size_bytes", "sha256", "retrieved_at", "redistribution", "allowed_hosts"],
+            "properties": {
+              "id": { "$ref": "#/$defs/artifactId" },
+              "role": { "const": "original" },
+              "availability": { "const": "available" },
+              "source_url": { "$ref": "#/$defs/httpsUrl" },
+              "local_path": { "type": "string" },
+              "media_type": { "type": "string" },
+              "curve_files": { "$ref": "#/$defs/curveFiles" },
+              "size_bytes": { "$ref": "#/$defs/sizeBytes" },
+              "redistribution": { "const": "local-only" },
+              "retrieved_at": { "$ref": "#/$defs/utcTimestamp" },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "allowed_hosts": { "$ref": "#/$defs/allowedHosts" },
+              "checked_at": false,
+              "reason": false,
+              "redaction_ref": false,
+              "generated_at": false,
+              "derived_from": false,
+              "derived_from_sha256": false,
+              "derivation": false
+            },
+            "oneOf": [
+              {
+                "required": ["local_path", "media_type"],
+                "properties": {
+                  "local_path": { "type": "string", "pattern": "^source/.+[.]pdf$" },
+                  "media_type": { "const": "application/pdf" }
+                }
+              },
+              {
+                "required": ["local_path", "media_type"],
+                "properties": {
+                  "local_path": { "type": "string", "pattern": "^source/.+[.]svg$" },
+                  "media_type": { "const": "image/svg+xml" }
+                }
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["id", "role", "availability", "curve_files", "checked_at", "reason", "redistribution"],
+            "properties": {
+              "id": { "$ref": "#/$defs/artifactId" },
+              "role": { "const": "original" },
+              "availability": { "const": "unavailable" },
+              "source_url": { "$ref": "#/$defs/httpsUrl" },
+              "curve_files": { "$ref": "#/$defs/curveFiles" },
+              "redistribution": { "const": "local-only" },
+              "checked_at": { "$ref": "#/$defs/utcTimestamp" },
+              "reason": { "type": "string", "minLength": 1 },
+              "redaction_ref": { "$ref": "#/$defs/artifactId" },
+              "allowed_hosts": { "$ref": "#/$defs/allowedHosts" },
+              "local_path": false,
+              "media_type": false,
+              "size_bytes": false,
+              "sha256": false,
+              "retrieved_at": false,
+              "generated_at": false,
+              "derived_from": false,
+              "derived_from_sha256": false,
+              "derivation": false
+            },
+            "oneOf": [
+              {
+                "required": ["source_url", "allowed_hosts"],
+                "properties": {
+                  "source_url": { "type": "string", "pattern": "^https://[^ ]+$" },
+                  "allowed_hosts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "redaction_ref": false
+                }
+              },
+              {
+                "required": ["redaction_ref"],
+                "properties": {
+                  "redaction_ref": { "type": "string", "minLength": 1 },
+                  "source_url": false,
+                  "allowed_hosts": false
+                }
+              }
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["id", "role", "availability", "local_path", "derived_from", "derived_from_sha256", "derivation", "media_type", "size_bytes", "sha256", "generated_at", "redistribution"],
+            "properties": {
+              "id": { "$ref": "#/$defs/artifactId" },
+              "role": { "const": "rendered-page" },
+              "availability": { "const": "available" },
+              "redistribution": { "const": "local-only" },
+              "derived_from": { "$ref": "#/$defs/artifactId" },
+              "derived_from_sha256": { "$ref": "#/$defs/sha256" },
+              "derivation": { "$ref": "#/$defs/pageDerivation" },
+              "size_bytes": { "$ref": "#/$defs/sizeBytes" },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "generated_at": { "$ref": "#/$defs/utcTimestamp" },
+              "local_path": { "type": "string", "pattern": "^source/.+[.]png$" },
+              "media_type": { "const": "image/png" }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["id", "role", "availability", "local_path", "derived_from", "derived_from_sha256", "curve_files", "derivation", "media_type", "size_bytes", "sha256", "generated_at", "redistribution"],
+            "properties": {
+              "id": { "$ref": "#/$defs/artifactId" },
+              "role": { "const": "chart-crop" },
+              "availability": { "const": "available" },
+              "redistribution": { "const": "local-only" },
+              "derived_from": { "$ref": "#/$defs/artifactId" },
+              "derived_from_sha256": { "$ref": "#/$defs/sha256" },
+              "curve_files": { "$ref": "#/$defs/curveFiles" },
+              "derivation": { "$ref": "#/$defs/cropDerivation" },
+              "size_bytes": { "$ref": "#/$defs/sizeBytes" },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "generated_at": { "$ref": "#/$defs/utcTimestamp" },
+              "local_path": { "type": "string", "pattern": "^source/.+[.]png$" },
+              "media_type": { "const": "image/png" }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "mic_slug": "shure-sm58",
+  "references": [],
+  "artifacts": [
+    {
+      "id": "official-specification",
+      "role": "original",
+      "availability": "available",
+      "source_url": "https://pubs.shure.com/manual.pdf",
+      "local_path": "source/original.pdf",
+      "media_type": "application/pdf",
+      "curve_files": [
+        "frequency-response--typical.csv"
+      ],
+      "size_bytes": 123456,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "retrieved_at": "2026-07-15T12:00:00Z",
+      "redistribution": "local-only",
+      "allowed_hosts": [
+        "pubs.shure.com"
+      ]
+    },
+    {
+      "id": "frequency-response-page",
+      "role": "rendered-page",
+      "availability": "available",
+      "local_path": "source/page-02.png",
+      "derived_from": "official-specification",
+      "derived_from_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "derivation": {
+        "page": 2,
+        "render_dpi": 300,
+        "render_tool": "pdftocairo",
+        "render_tool_version": "26.06.0"
+      },
+      "media_type": "image/png",
+      "size_bytes": 345678,
+      "sha256": "123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+      "generated_at": "2026-07-15T12:00:00Z",
+      "redistribution": "local-only"
+    },
+    {
+      "id": "frequency-response-chart",
+      "role": "chart-crop",
+      "availability": "available",
+      "local_path": "source/chart-frequency-response.png",
+      "derived_from": "frequency-response-page",
+      "derived_from_sha256": "123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+      "curve_files": [
+        "frequency-response--typical.csv"
+      ],
+      "derivation": {
+        "crop_box_px": [
+          120,
+          80,
+          920,
+          620
+        ],
+        "crop_tool": "Pillow",
+        "crop_tool_version": "10.4.0"
+      },
+      "media_type": "image/png",
+      "size_bytes": 23456,
+      "sha256": "23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
+      "generated_at": "2026-07-15T12:00:00Z",
+      "redistribution": "local-only"
+    }
+  ]
+}

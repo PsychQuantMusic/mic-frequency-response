@@ -8,8 +8,8 @@
 curves:
   - file: frequency-response--typical.csv
     points:
-      - { freq_hz: 38.1, expected_db: -4.52, tol_db: 0.5 }
+      - { freq_hz: 51.1, expected_db: -1.95, tol_db: 0.5 }
       - { freq_hz: 100, expected_db: -0.15, tol_db: 0.5 }
       - { freq_hz: 1000, expected_db: -0.64, tol_db: 0.5 }
       - { freq_hz: 8337.8, expected_db: 1.35, tol_db: 0.5 }
-      - { freq_hz: 19690.6, expected_db: -4.49, tol_db: 0.5 }
+      - { freq_hz: 17443.2, expected_db: -2.13, tol_db: 0.5 }

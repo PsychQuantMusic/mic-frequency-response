@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "neumann-tlm102-source-asset",
+      "mic_slug": "neumann-tlm102",
+      "source_field": "meta.yaml references[0]",
+      "legacy_url_sha256": "3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012",
+      "checked_at": "2026-07-15T12:00:00Z",
+      "disposition": "no-stable-endpoint"
+    }
+  ]
+}

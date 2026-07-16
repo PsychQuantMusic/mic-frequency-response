@@ -28,8 +28,19 @@ method: >
   Y axis is labeled "dBm" (relative response), so values are relative dB.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 145
+    formal_frequency_span_hz: [30.108, 14857.286]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: "typical on-axis response (as published)"
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--typical.csv]
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated --target-color 46,49,145, #14)"
   date: 2026-07-09
   result: >

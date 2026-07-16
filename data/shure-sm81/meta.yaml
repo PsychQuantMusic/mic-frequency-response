@@ -30,8 +30,15 @@ switch_setting: >
   not alter frequency response.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 42
+    formal_frequency_span_hz: [36.652, 19943.564]
+    verification_relation: current-csv-directly-verified
     condition: "flat switch position, full-range on-axis at 1 m (as published)"
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated), redraw-fidelity check"
   date: 2026-07-09
   window_px: 12

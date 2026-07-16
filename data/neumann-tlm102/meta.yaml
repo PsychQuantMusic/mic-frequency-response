@@ -33,8 +33,19 @@ method: >
   gentle LF slope to ~-12 dB at 20 Hz, HF rolloff to ~-7.6 dB at 20 kHz.
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: vector-path-extraction
+    reproduction_status: vector-source-recorded
+    formal_point_count: 42
+    formal_frequency_span_hz: [20.097, 19899.24]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: "0deg free-field on-axis response as published (cardioid; nominal solid curve, excludes dashed tolerance band; presence lift ~+3.5 dB peaking ~9-10 kHz)"
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--typical.csv]
   method: "overlay_verify.py --interpolated vs rendered official chart (--target-color 255,0,0) + independent exact-bezier cross-check"
   date: 2026-07-09
   result: >

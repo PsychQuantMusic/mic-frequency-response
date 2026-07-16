@@ -25,8 +25,15 @@ method: >
   flat ~0 dB through mids, HF rolloff back to ~0 dB @ 20 kHz).
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 48
+    formal_frequency_span_hz: [20.033, 19966.705]
+    verification_relation: current-csv-directly-verified
     condition: "typical on-axis response (as published, cardioid; no filters — mic has no pad/HPF switches)"
 verification:
+  curves: [frequency-response--typical.csv]
   method: "overlay vs original chart (scripts/overlay_verify.py --interpolated, --target-color 106,193,47)"
   date: 2026-07-09
   result: >

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://psychquantmusic.github.io/mic-frequency-response/schemas/source-url-redactions-v1.schema.json",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "anyOf": [
+        {
+          "pattern": "^[0-9]{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12][0-9]|3[01])|(?:0[469]|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+        },
+        {
+          "pattern": "^(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|(?:0[48]|[2468][048]|[13579][26])00)-02-29T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+        }
+      ]
+    },
+    "httpsUrl": {
+      "type": "string",
+      "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:[.][A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*(?::[0-9]{1,5})?(?:/[^\u0000-\u0020\u007F?#]*)?(?:[?][^\u0000-\u0020\u007F#]*)?$"
+    },
+    "safeCanonicalUrl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        {
+          "not": {
+            "type": "string",
+            "pattern": "[?]"
+          }
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "required": ["schema_version", "entries"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "entries": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["id", "mic_slug", "source_field", "legacy_url_sha256", "checked_at", "disposition", "canonical_url"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "mic_slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+              "source_field": { "type": "string", "minLength": 1 },
+              "disposition": { "const": "replaced" },
+              "legacy_url_sha256": { "$ref": "#/$defs/sha256" },
+              "checked_at": { "$ref": "#/$defs/utcTimestamp" },
+              "canonical_url": { "$ref": "#/$defs/safeCanonicalUrl" }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["id", "mic_slug", "source_field", "legacy_url_sha256", "checked_at", "disposition"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "mic_slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+              "source_field": { "type": "string", "minLength": 1 },
+              "disposition": { "const": "no-stable-endpoint" },
+              "legacy_url_sha256": { "$ref": "#/$defs/sha256" },
+              "checked_at": { "$ref": "#/$defs/utcTimestamp" },
+              "canonical_url": false
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

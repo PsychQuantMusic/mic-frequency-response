@@ -28,9 +28,16 @@ method: >
   e835 ~404.5 同 template）；左框 ≈40 Hz 吻合規格下限。Y 軸 dBV 線性，網格線 -40…-90 每 10 dBV
   ≈81.5 px；錨定 0 dB = -50 dBV 網格線（與 e935/e904/e835 同慣例，同廠同軸，便於跨麥比較）。
   獨立交叉核驗：trace 之 presence 尖峰落在 4134 Hz，與官方 presence filter 中心頻率 4.2 kHz 吻合，
-  確認校準正確。以 --simplify 0.05 dB 感知無損降採樣（195 點）。best-effort ±0.5 dB。
+  確認校準正確。原始 trace 以 --simplify 0.05 dB 感知無損降採樣；正式 CSV 只保留第一個
+  無量測缺口的連續區段（40 Hz–6.948 kHz，共 164 點）。best-effort ±0.5 dB。
 curves:
   - file: frequency-response--typical.csv
+    data_origin: official-published-curve
+    digitization_method: seeded-pixel-trace
+    reproduction_status: legacy-overlay-verified
+    formal_point_count: 164
+    formal_frequency_span_hz: [40.195, 6948.831]
+    verification_relation: retained-unmodified-subset-of-verified-trace
     condition: >
       on-axis (0°, 1 m), MODERATE / flat presence-switch position (middle switch icon,
       the "(0°, 1 m)" reference curve). Relative to -50 dBV gridline (0 dB).
@@ -41,23 +48,25 @@ polar_note: >
   同色群組曲線在前方近乎重合、以難分辨的虛線樣式交疊；此密度下無法在 facts-only 標準下可靠地
   逐頻分離判讀，故本批**未** digitize polar 各曲線（誠實跳過優於輸出不可靠數據）。FR 已捕捉主要頻譜行為。
 verification:
+  scope_note: >
+    curves[].formal_point_count 與 formal_frequency_span_hz 描述目前正式 CSV。
+    若 verification_relation 為 retained-unmodified-subset-of-verified-trace，result 的統計可能描述裁切前已驗證 trace；
+    正式 CSV 只刪除原廠範圍外或來源無資料缺口後的列，保留列的頻率與 dB 數值未改寫。
+  curves: [frequency-response--typical.csv]
   method: "overlay --interpolated vs original chart (scripts/overlay_verify.py, #14), color-tolerance 40"
   date: 2026-07-09
   result: >
-    重繪保真驗證（沿內插折線逐欄比對）：median 0.003 / max 0.736 dB over 1030 measured cols
-    （0 ambiguous、全部點 ±1.0 dB 內，--target-color 藍 tolerance 40）。逐點 195/195 matched。
-    **70 個 overlay measurement gap**（非 CSV 缺陷）集中在三曲線「再收斂/交疊」區——7.2–9.5 kHz
-    （51 欄）與 15.7–17.2 kHz（18 欄），該處 moderate 曲線被 bright/dark 覆蓋（drawn under）、
-    tolerance 40 濾不到純 moderate 像素故無法逐欄量測；viterbi 以連續性橋接，因三曲線在收斂區彼此僅
-    相距 ~±0.7 dB，橋接值誤差受此曲線間距上界所限、屬誠實不確定帶而非誤判。分岔尖峰區（2–7 kHz）
-    量測乾淨（此即 max 0.736 所在，無 gap）。
+    原始全幅重繪驗證為 median 0.003 / max 0.736 dB over 1030 measured cols；但 7.2–9.5 kHz
+    與 15.7–17.2 kHz 共 70 欄沒有可辨識的 moderate 純像素，原 trace 曾以連續性橋接。
+    正式 CSV 因此在第一個缺口前停止，只保留 40 Hz–6.948 kHz 的 164 個可量測點；保留區間
+    沒有 measurement gap，且全部 overlay 偏差在 ±1.0 dB 內。缺口後即使重新出現可見像素，
+    目前兩欄 CSV 無法表達不連線的分段曲線，故一律不收錄，避免把橋接或跨 gap 連線當成官方資料。
   note: >
     e906 為電吉他音箱動圈麥（supercardioid，flat shape 貼音箱面）。moderate/flat 設定聲底：
     低頻於 ~150 Hz 以下 rolloff（40 Hz ≈ -18 dB relative，補償近接效應）；中頻寬廣平台 ~-3.4 至
     -5.4 dB（200 Hz–2.5 kHz）；自 ~3 kHz 起寬廣 presence lift，於 ~4.1 kHz 達尖峰 +1.1 dB（招牌
-    presence，約 +5 dB 高於中頻平台，presence filter 中心 4.2 kHz）；~8 kHz 有次尖峰 ~-2.3 dB；
-    ~13 kHz 後高頻陡降（13 kHz -7.8 dB、17 kHz -21.7 dB、~20 kHz -25 dB）。曲線自左框 ~40 Hz 起、
-    繪至右框 ~20 kHz。frequency_range_hz 依官方規格 40–18000。
+    presence，約 +5 dB 高於中頻平台，presence filter 中心 4.2 kHz）。來源圖繼續繪到約 20 kHz，
+    但正式 CSV 在 6.948 kHz 後留白；frequency_range_hz 仍依官方規格記為 40–18000。
 license_note: >
   數據為事實資料（frequency→dB），從公開官方 product specification 判讀，非原圖之重製。
   原圖（PDF/PNG）未收錄進 repo。
