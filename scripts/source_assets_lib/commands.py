@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
-import tempfile
+import secrets
 from typing import Callable
 from urllib.parse import urlsplit
 
@@ -20,9 +20,12 @@ from .model import (
 from .network import ABSOLUTE_MAX_SIZE, DownloadRequest, RemoteHTTPError, Transport
 from .storage import (
     ArtifactStore,
-    digest_file,
+    ensure_local_directory,
+    inspect_local_file,
+    link_local_file_if_absent,
+    local_file_exists,
+    remove_local_file,
     resolve_local_path,
-    validate_signature,
 )
 
 
@@ -61,6 +64,13 @@ class CommandContext:
     now: Callable[[], datetime]
 
 
+class _BootstrapRemoteHTTPFailure(Exception):
+    def __init__(self, error: RemoteHTTPError, had_orphan: bool):
+        self.error = error
+        self.had_orphan = had_orphan
+        super().__init__(str(error))
+
+
 def bootstrap(
     root: Path,
     selector: Selector,
@@ -81,7 +91,11 @@ def bootstrap(
         policy = _load_policy(root)
     except SourceAssetError as error:
         return OperationSummary(available=0, unavailable=0, failed=1, exit_code=error.exit_code)
-    manifest_paths = _manifest_paths(root, selector)
+    try:
+        manifest_paths = _manifest_paths(root, selector)
+    except (SourceAssetError, OSError) as error:
+        classified = _classify_local_error(error)
+        return OperationSummary(0, 0, 1, classified.exit_code)
     if not manifest_paths:
         return OperationSummary(0, 0, 1, 1)
     for manifest_path in manifest_paths:
@@ -89,12 +103,18 @@ def bootstrap(
             mic_dir = _validated_mic_directory(root, manifest_path)
             document = load_manifest(manifest_path, allow_pending=True)
             _validate_bootstrap_manifest(document, mic_dir, policy)
-            _ensure_source_directory(mic_dir)
-        except SourceAssetError as error:
+            _ensure_source_directory(mic_dir, root)
+        except (SourceAssetError, OSError) as error:
+            error = _classify_local_error(error)
             failed += 1
             exit_code = max(exit_code, error.exit_code)
             continue
-        for artifact in document["artifacts"]:
+        for artifact_snapshot in tuple(document["artifacts"]):
+            artifact = next(
+                item
+                for item in document["artifacts"]
+                if item["id"] == artifact_snapshot["id"]
+            )
             if artifact["availability"] == "available":
                 available += 1
                 continue
@@ -106,55 +126,89 @@ def bootstrap(
                 and artifact["availability"] == "pending"
             ):
                 continue
-            target = resolve_local_path(mic_dir, artifact["local_path"])
-            request = DownloadRequest(
-                url=artifact["source_url"],
-                allowed_hosts=frozenset(artifact["allowed_hosts"]),
-                expected_media_type=artifact["media_type"],
-                expected_size=None,
-                max_size=ABSOLUTE_MAX_SIZE,
-                expected_sha256=None,
-            )
-            had_orphan = target.exists()
             try:
+                target = resolve_local_path(mic_dir, artifact["local_path"])
+                request = DownloadRequest(
+                    url=artifact["source_url"],
+                    allowed_hosts=frozenset(artifact["allowed_hosts"]),
+                    expected_media_type=artifact["media_type"],
+                    expected_size=None,
+                    max_size=ABSOLUTE_MAX_SIZE,
+                    expected_sha256=None,
+                )
                 _result, file_digest = _download_bootstrap_blob(
                     context,
+                    root,
                     target,
                     artifact["media_type"],
                     request,
                 )
-            except RemoteHTTPError as error:
-                if not had_orphan and error.status in {404, 410}:
-                    artifact["availability"] = "unavailable"
-                    artifact["checked_at"] = operation_timestamp
-                    artifact["reason"] = f"遠端 HTTP {error.status}"
-                    artifact.pop("local_path", None)
-                    artifact.pop("media_type", None)
+            except _BootstrapRemoteHTTPFailure as failure:
+                error = failure.error
+                if not failure.had_orphan and error.status in {404, 410}:
+                    updated_document = copy.deepcopy(document)
+                    updated_artifact = next(
+                        item
+                        for item in updated_document["artifacts"]
+                        if item["id"] == artifact["id"]
+                    )
+                    updated_artifact["availability"] = "unavailable"
+                    updated_artifact["checked_at"] = operation_timestamp
+                    updated_artifact["reason"] = f"遠端 HTTP {error.status}"
+                    updated_artifact.pop("local_path", None)
+                    updated_artifact.pop("media_type", None)
                     try:
-                        context.store.publish_manifest(manifest_path, document)
-                    except SourceAssetError as manifest_error:
+                        context.store.publish_manifest(manifest_path, updated_document)
+                    except (SourceAssetError, OSError) as manifest_error:
+                        manifest_error = _classify_local_error(manifest_error)
                         failed += 1
                         exit_code = max(exit_code, manifest_error.exit_code)
+                        recovered_document = _recover_bootstrap_document(
+                            manifest_path,
+                            mic_dir,
+                            policy,
+                        )
+                        if recovered_document is None:
+                            break
+                        document = recovered_document
                     else:
+                        document = updated_document
                         unavailable += 1
                 else:
                     failed += 1
                     exit_code = max(exit_code, error.exit_code)
                 continue
-            except SourceAssetError as error:
+            except (SourceAssetError, OSError) as error:
+                error = _classify_local_error(error)
                 failed += 1
                 exit_code = max(exit_code, error.exit_code)
                 continue
-            artifact["availability"] = "available"
-            artifact["size_bytes"] = file_digest.size_bytes
-            artifact["sha256"] = file_digest.sha256
-            artifact["retrieved_at"] = operation_timestamp
+            updated_document = copy.deepcopy(document)
+            updated_artifact = next(
+                item
+                for item in updated_document["artifacts"]
+                if item["id"] == artifact["id"]
+            )
+            updated_artifact["availability"] = "available"
+            updated_artifact["size_bytes"] = file_digest.size_bytes
+            updated_artifact["sha256"] = file_digest.sha256
+            updated_artifact["retrieved_at"] = operation_timestamp
             try:
-                context.store.publish_manifest(manifest_path, document)
-            except SourceAssetError as error:
+                context.store.publish_manifest(manifest_path, updated_document)
+            except (SourceAssetError, OSError) as error:
+                error = _classify_local_error(error)
                 failed += 1
                 exit_code = max(exit_code, error.exit_code)
+                recovered_document = _recover_bootstrap_document(
+                    manifest_path,
+                    mic_dir,
+                    policy,
+                )
+                if recovered_document is None:
+                    break
+                document = recovered_document
                 continue
+            document = updated_document
             available += 1
     return OperationSummary(
         available=available,
@@ -177,7 +231,11 @@ def fetch(
         policy = _load_policy(root)
     except SourceAssetError as error:
         return OperationSummary(0, 0, 1, error.exit_code)
-    manifest_paths = _manifest_paths(root, selector)
+    try:
+        manifest_paths = _manifest_paths(root, selector)
+    except (SourceAssetError, OSError) as error:
+        error = _classify_local_error(error)
+        return OperationSummary(0, 0, 1, error.exit_code)
     if not manifest_paths:
         return OperationSummary(0, 0, 1, 1)
     for manifest_path in manifest_paths:
@@ -185,8 +243,9 @@ def fetch(
             mic_dir = _validated_mic_directory(root, manifest_path)
             document = load_manifest(manifest_path, allow_pending=False)
             validate_manifest(document, mic_dir, policy, allow_pending=False)
-            _ensure_source_directory(mic_dir)
-        except SourceAssetError as error:
+            _ensure_source_directory(mic_dir, root)
+        except (SourceAssetError, OSError) as error:
+            error = _classify_local_error(error)
             failed += 1
             exit_code = max(exit_code, error.exit_code)
             continue
@@ -196,25 +255,20 @@ def fetch(
             if artifact["availability"] == "unavailable":
                 unavailable += 1
                 continue
-            target = resolve_local_path(mic_dir, artifact["local_path"])
-            if target.exists():
-                try:
-                    _verify_file(target, artifact)
-                except SourceAssetError as error:
-                    failed += 1
-                    exit_code = max(exit_code, error.exit_code)
-                else:
-                    available += 1
-                continue
-            request = DownloadRequest(
-                url=artifact["source_url"],
-                allowed_hosts=frozenset(artifact["allowed_hosts"]),
-                expected_media_type=artifact["media_type"],
-                expected_size=artifact["size_bytes"],
-                max_size=artifact["size_bytes"],
-                expected_sha256=artifact["sha256"],
-            )
             try:
+                target = resolve_local_path(mic_dir, artifact["local_path"])
+                if local_file_exists(target, root):
+                    _verify_file(target, artifact, root)
+                    available += 1
+                    continue
+                request = DownloadRequest(
+                    url=artifact["source_url"],
+                    allowed_hosts=frozenset(artifact["allowed_hosts"]),
+                    expected_media_type=artifact["media_type"],
+                    expected_size=artifact["size_bytes"],
+                    max_size=artifact["size_bytes"],
+                    expected_sha256=artifact["sha256"],
+                )
                 _result, file_digest = context.store.publish_blob(
                     target,
                     artifact["media_type"],
@@ -225,7 +279,8 @@ def fetch(
                     or file_digest.sha256 != artifact["sha256"]
                 ):
                     raise IntegrityError(f"下載內容與 manifest 不符：{target}")
-            except SourceAssetError as error:
+            except (SourceAssetError, OSError) as error:
+                error = _classify_local_error(error)
                 failed += 1
                 exit_code = max(exit_code, error.exit_code)
             else:
@@ -242,7 +297,11 @@ def verify(root: Path, selector: Selector) -> OperationSummary:
         policy = _load_policy(root)
     except SourceAssetError as error:
         return OperationSummary(0, 0, 1, error.exit_code)
-    manifest_paths = _manifest_paths(root, selector)
+    try:
+        manifest_paths = _manifest_paths(root, selector)
+    except (SourceAssetError, OSError) as error:
+        error = _classify_local_error(error)
+        return OperationSummary(0, 0, 1, error.exit_code)
     if not manifest_paths:
         return OperationSummary(0, 0, 1, 1)
     for manifest_path in manifest_paths:
@@ -250,7 +309,8 @@ def verify(root: Path, selector: Selector) -> OperationSummary:
             mic_dir = _validated_mic_directory(root, manifest_path)
             document = load_manifest(manifest_path, allow_pending=False)
             validate_manifest(document, mic_dir, policy, allow_pending=False)
-        except SourceAssetError as error:
+        except (SourceAssetError, OSError) as error:
+            error = _classify_local_error(error)
             failed += 1
             exit_code = max(exit_code, error.exit_code)
             continue
@@ -258,12 +318,13 @@ def verify(root: Path, selector: Selector) -> OperationSummary:
             if artifact["availability"] == "unavailable":
                 unavailable += 1
                 continue
-            target = resolve_local_path(mic_dir, artifact["local_path"])
             try:
-                if not target.is_file():
+                target = resolve_local_path(mic_dir, artifact["local_path"])
+                if not local_file_exists(target, root):
                     raise IntegrityError(f"available artifact 缺少本機檔案：{target}")
-                _verify_file(target, artifact)
-            except SourceAssetError as error:
+                _verify_file(target, artifact, root)
+            except (SourceAssetError, OSError) as error:
+                error = _classify_local_error(error)
                 failed += 1
                 exit_code = max(exit_code, error.exit_code)
             else:
@@ -273,18 +334,25 @@ def verify(root: Path, selector: Selector) -> OperationSummary:
 
 def _manifest_paths(root: Path, selector: Selector) -> list[Path]:
     data = root / "data"
-    if selector.mic_slug is not None:
-        candidate = data / selector.mic_slug / "source-manifest.json"
-        return [candidate] if candidate.is_file() else []
-    return sorted(data.glob("*/source-manifest.json"))
+    try:
+        if selector.mic_slug is not None:
+            return [data / selector.mic_slug / "source-manifest.json"]
+        candidates = []
+        with os.scandir(data) as entries:
+            for entry in entries:
+                if entry.is_dir(follow_symlinks=False) or entry.is_symlink():
+                    candidates.append(data / entry.name / "source-manifest.json")
+        return sorted(candidates)
+    except OSError as error:
+        raise ContractError(f"無法列舉來源 manifest：{data}") from error
 
 
 def _validated_mic_directory(root: Path, manifest_path: Path) -> Path:
     data_dir = root / "data"
     mic_dir = manifest_path.parent
-    if data_dir.is_symlink() or mic_dir.is_symlink() or manifest_path.is_symlink():
-        raise ContractError(f"來源 manifest 路徑不得經過 symlink：{manifest_path}")
     try:
+        if data_dir.is_symlink() or mic_dir.is_symlink() or manifest_path.is_symlink():
+            raise ContractError(f"來源 manifest 路徑不得經過 symlink：{manifest_path}")
         if mic_dir.parent.resolve(strict=True) != data_dir.resolve(strict=True):
             raise ContractError(f"來源 manifest 不在 data 直屬資料夾：{manifest_path}")
     except OSError as error:
@@ -393,54 +461,72 @@ def _validate_redaction_entry(entry: object) -> None:
             raise ContractError("redaction canonical_url 無效")
 
 
-def _ensure_source_directory(mic_dir: Path) -> Path:
+def _ensure_source_directory(mic_dir: Path, root: Path) -> Path:
     source_dir = mic_dir / "source"
-    if source_dir.is_symlink():
-        raise ContractError(f"source 資料夾不得是 symlink：{source_dir}")
-    try:
-        source_dir.mkdir(mode=0o700)
-    except FileExistsError:
-        if not source_dir.is_dir():
-            raise ContractError(f"source 路徑必須是資料夾：{source_dir}") from None
-    except OSError as error:
-        raise ContractError(f"無法建立 source 資料夾：{source_dir}") from error
+    ensure_local_directory(source_dir, root)
     return source_dir
 
 
 def _download_bootstrap_blob(
     context: CommandContext,
+    root: Path,
     target: Path,
     media_type: str,
     request: DownloadRequest,
 ):
     producer = lambda handle: context.transport.download(request, handle)
-    if not target.exists():
-        return context.store.publish_blob(target, media_type, producer)
-
-    try:
-        fd, candidate_name = tempfile.mkstemp(
-            prefix=f".{target.name}.orphan-",
-            suffix=".candidate",
-            dir=target.parent,
-        )
-        os.close(fd)
-        candidate = Path(candidate_name)
-        candidate.unlink()
-    except OSError as error:
-        raise ContractError(f"無法建立 orphan 比對檔：{target}") from error
+    candidate = target.parent / (
+        f".{target.name}.orphan-{secrets.token_hex(16)}.candidate"
+    )
+    primary_error = None
     try:
         result, candidate_digest = context.store.publish_blob(
             candidate,
             media_type,
             producer,
         )
-        validate_signature(target, media_type)
-        orphan_digest = digest_file(target)
+        if link_local_file_if_absent(candidate, target, root):
+            installed_digest = inspect_local_file(target, media_type, root)
+            if installed_digest != candidate_digest:
+                raise IntegrityError(f"發布後 artifact 內容不符：{target}")
+            return result, installed_digest
+        orphan_digest = inspect_local_file(target, media_type, root)
         if orphan_digest != candidate_digest:
             raise IntegrityError(f"既有 orphan 與重新下載內容不符：{target}")
         return result, orphan_digest
+    except RemoteHTTPError as error:
+        try:
+            had_orphan = local_file_exists(target, root)
+        except BaseException as state_error:
+            primary_error = state_error
+            raise
+        wrapped = _BootstrapRemoteHTTPFailure(error, had_orphan)
+        primary_error = wrapped
+        raise wrapped from error
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
-        candidate.unlink(missing_ok=True)
+        try:
+            remove_local_file(candidate, root)
+        except SourceAssetError as cleanup_error:
+            if primary_error is None:
+                raise
+            if hasattr(primary_error, "add_note"):
+                primary_error.add_note(f"orphan 比對檔清理失敗：{cleanup_error}")
+
+
+def _recover_bootstrap_document(
+    manifest_path: Path,
+    mic_dir: Path,
+    policy: Policy,
+) -> dict | None:
+    try:
+        recovered = load_manifest(manifest_path, allow_pending=True)
+        _validate_bootstrap_manifest(recovered, mic_dir, policy)
+    except (SourceAssetError, OSError):
+        return None
+    return recovered
 
 
 def _validate_bootstrap_manifest(document: dict, mic_dir: Path, policy: Policy) -> None:
@@ -519,14 +605,19 @@ def _validate_bootstrap_manifest(document: dict, mic_dir: Path, policy: Policy) 
     validate_manifest(staged, mic_dir, policy, allow_pending=True)
 
 
-def _verify_file(target: Path, artifact: dict) -> None:
-    validate_signature(target, artifact["media_type"])
-    file_digest = digest_file(target)
+def _verify_file(target: Path, artifact: dict, root: Path) -> None:
+    file_digest = inspect_local_file(target, artifact["media_type"], root)
     if (
         file_digest.size_bytes != artifact["size_bytes"]
         or file_digest.sha256 != artifact["sha256"]
     ):
         raise IntegrityError(f"本機 artifact 與 manifest 不符：{target}")
+
+
+def _classify_local_error(error: SourceAssetError | OSError) -> SourceAssetError:
+    if isinstance(error, SourceAssetError):
+        return error
+    return ContractError("本機檔案系統操作失敗")
 
 
 def _utc_timestamp(value: datetime) -> str:

@@ -3,10 +3,19 @@
 import argparse
 from collections.abc import Sequence
 from datetime import datetime, timezone
+import os
 from pathlib import Path
+import stat
 import sys
 
-from source_assets_lib.commands import CommandContext, Selector, bootstrap, fetch, verify
+from source_assets_lib.commands import (
+    CommandContext,
+    OperationSummary,
+    Selector,
+    bootstrap,
+    fetch,
+    verify,
+)
 from source_assets_lib.model import ContractError
 from source_assets_lib.network import PinnedHTTPSClient
 from source_assets_lib.storage import AtomicArtifactStore
@@ -19,7 +28,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     selector = Selector.all() if args.all else Selector.mic(args.mic)
-    if not _has_manifest(REPOSITORY_ROOT, selector):
+    try:
+        has_manifest = _has_manifest(REPOSITORY_ROOT, selector)
+    except OSError:
+        summary = OperationSummary(0, 0, 1, 1)
+        _print_summary(summary)
+        return summary.exit_code
+    if not has_manifest:
         print(
             "找不到 source-manifest.json；請先執行來源 manifest 遷移",
             file=sys.stderr,
@@ -30,7 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         context = CommandContext(
             transport=PinnedHTTPSClient(),
-            store=AtomicArtifactStore(),
+            store=AtomicArtifactStore(REPOSITORY_ROOT),
             now=lambda: datetime.now(timezone.utc),
         )
         if args.command == "bootstrap":
@@ -70,8 +85,39 @@ def _print_summary(summary) -> None:
 def _has_manifest(root: Path, selector: Selector) -> bool:
     data = root / "data"
     if selector.mic_slug is not None:
-        return (data / selector.mic_slug / "source-manifest.json").is_file()
-    return next(data.glob("*/source-manifest.json"), None) is not None
+        candidate = data / selector.mic_slug / "source-manifest.json"
+        try:
+            metadata = os.stat(candidate, follow_symlinks=False)
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        return stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode)
+    first_error = None
+    try:
+        entries = os.scandir(data)
+    except FileNotFoundError:
+        return False
+    with entries:
+        for entry in entries:
+            try:
+                if not (
+                    entry.is_dir(follow_symlinks=False) or entry.is_symlink()
+                ):
+                    continue
+                metadata = os.stat(
+                    data / entry.name / "source-manifest.json",
+                    follow_symlinks=False,
+                )
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError as error:
+                if first_error is None:
+                    first_error = error
+                continue
+            if stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+                return True
+    if first_error is not None:
+        raise first_error
+    return False
 
 
 def _parse_mic_slug(value: str) -> str:

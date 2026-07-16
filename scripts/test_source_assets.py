@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import source_assets as source_assets_cli
+import source_assets_lib.commands as commands_module
 import source_assets_lib.storage as storage_module
 import source_assets_lib.network as network_module
 from source_assets_lib.network import (
@@ -317,6 +318,25 @@ class FailingManifestStore:
         raise ContractError("manifest 寫入失敗")
 
 
+class RawFailingStore:
+    def __init__(self, *, blob_errors=(), manifest_error=None):
+        self.delegate = storage_module.AtomicArtifactStore()
+        self.blob_errors = list(blob_errors)
+        self.manifest_error = manifest_error
+
+    def publish_blob(self, target, media_type, producer):
+        if self.blob_errors:
+            error = self.blob_errors.pop(0)
+            if error is not None:
+                raise error
+        return self.delegate.publish_blob(target, media_type, producer)
+
+    def publish_manifest(self, target, document):
+        if self.manifest_error is not None:
+            raise self.manifest_error
+        return self.delegate.publish_manifest(target, document)
+
+
 def _make_pending_lifecycle_repo(root, *, create_source=True):
     root = Path(root)
     config = root / "config"
@@ -429,13 +449,10 @@ class LifecycleCommandTests(unittest.TestCase):
             summary = bootstrap(Path(td), Selector.all(), True, context)
 
             self.assertEqual(summary.exit_code, 0)
-            self.assertEqual(
-                store.events,
-                [
-                    ("blob", mic_dir / "source" / "original.pdf"),
-                    ("manifest", manifest),
-                ],
-            )
+            self.assertEqual([event[0] for event in store.events], ["blob", "manifest"])
+            self.assertEqual(store.events[0][1].parent, mic_dir / "source")
+            self.assertEqual(store.events[1], ("manifest", manifest))
+            self.assertTrue((mic_dir / "source" / "original.pdf").is_file())
 
     def test_bootstrap_classifies_http_not_found_as_unavailable(self):
         observed = []
@@ -578,7 +595,7 @@ class LifecycleCommandTests(unittest.TestCase):
                 transport = StaticTransport()
                 context = CommandContext(
                     transport=transport,
-                    store=storage_module.AtomicArtifactStore(),
+                    store=storage_module.AtomicArtifactStore(Path(td)),
                     now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
                 )
                 try:
@@ -616,6 +633,171 @@ class LifecycleCommandTests(unittest.TestCase):
             self.assertEqual(transport.calls, [])
             self.assertFalse((outside_mic / "source" / "original.pdf").exists())
 
+    def test_bootstrap_rejects_source_and_microphone_symlink_swap_without_external_writes(self):
+        for swapped_component in ("source", "microphone"):
+            with self.subTest(swapped_component=swapped_component), tempfile.TemporaryDirectory() as td:
+                mic_dir, manifest = _make_pending_lifecycle_repo(td)
+                original_manifest = manifest.read_bytes()
+                outside = Path(td) / "outside"
+                outside.mkdir()
+                parked = Path(td) / f"parked-{swapped_component}"
+                if swapped_component == "source":
+                    outside_target = outside
+                else:
+                    outside_target = outside / mic_dir.name
+                    (outside_target / "source").mkdir(parents=True)
+                transport = StaticTransport()
+                context = CommandContext(
+                    transport=transport,
+                    store=storage_module.AtomicArtifactStore(),
+                    now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+                )
+                real_open = os.open
+                swapped = False
+
+                def swapping_open(path, flags, mode=0o777, *, dir_fd=None):
+                    nonlocal swapped
+                    path_text = os.fspath(path)
+                    is_current_temp_create = (
+                        dir_fd is None
+                        and Path(path_text).parent == mic_dir / "source"
+                        and Path(path_text).name.startswith(".original.pdf.")
+                    )
+                    is_hardened_component_open = (
+                        dir_fd is not None
+                        and (
+                            (swapped_component == "source" and path_text == "source")
+                            or (
+                                swapped_component == "microphone"
+                                and path_text == mic_dir.name
+                            )
+                        )
+                    )
+                    if not swapped and (is_current_temp_create or is_hardened_component_open):
+                        swapped = True
+                        if swapped_component == "source":
+                            (mic_dir / "source").rename(parked)
+                            (mic_dir / "source").symlink_to(
+                                outside_target,
+                                target_is_directory=True,
+                            )
+                        else:
+                            mic_dir.rename(parked)
+                            mic_dir.symlink_to(outside_target, target_is_directory=True)
+                    if dir_fd is None:
+                        return real_open(path, flags, mode)
+                    return real_open(path, flags, mode, dir_fd=dir_fd)
+
+                with patch.object(storage_module.os, "open", swapping_open):
+                    try:
+                        summary = bootstrap(Path(td), Selector.all(), True, context)
+                    except OSError as error:
+                        summary = type(error).__name__
+
+                self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+                self.assertTrue(swapped)
+                self.assertEqual(transport.calls, [])
+                self.assertEqual(
+                    [path for path in outside.rglob("*") if path.is_file()],
+                    [],
+                )
+                self.assertEqual(
+                    (parked / "source-manifest.json").read_bytes()
+                    if swapped_component == "microphone"
+                    else manifest.read_bytes(),
+                    original_manifest,
+                )
+
+    def test_bootstrap_classifies_raw_local_store_errors_and_continues_batch(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, _manifest = _make_pending_lifecycle_repo(td)
+            data_dir = Path(td) / "data"
+            template = data_dir / "shure-sm58"
+            for slug in ("a-local-error", "b-success"):
+                destination = data_dir / slug
+                shutil.copytree(template, destination)
+                manifest = destination / "source-manifest.json"
+                document = json.loads(manifest.read_text(encoding="utf-8"))
+                document["mic_slug"] = slug
+                manifest.write_text(json.dumps(document), encoding="utf-8")
+            shutil.rmtree(template)
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=RawFailingStore(blob_errors=[PermissionError("denied"), None]),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            try:
+                summary = bootstrap(Path(td), Selector.all(), True, context)
+            except OSError as error:
+                summary = type(error).__name__
+
+            self.assertEqual(summary, OperationSummary(1, 0, 1, 1))
+            self.assertEqual(len(transport.calls), 1)
+            states = {
+                slug: json.loads(
+                    (data_dir / slug / "source-manifest.json").read_text(encoding="utf-8")
+                )["artifacts"][0]["availability"]
+                for slug in ("a-local-error", "b-success")
+            }
+            self.assertEqual(
+                states,
+                {"a-local-error": "pending", "b-success": "available"},
+            )
+
+    def test_bootstrap_all_counts_unreadable_microphone_and_continues(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, _manifest = _make_pending_lifecycle_repo(td)
+            data_dir = Path(td) / "data"
+            template = data_dir / "shure-sm58"
+            readable = data_dir / "a-readable"
+            unreadable = data_dir / "z-unreadable"
+            for destination in (readable, unreadable):
+                shutil.copytree(template, destination)
+                manifest = destination / "source-manifest.json"
+                document = json.loads(manifest.read_text(encoding="utf-8"))
+                document["mic_slug"] = destination.name
+                manifest.write_text(json.dumps(document), encoding="utf-8")
+            shutil.rmtree(template)
+            transport = StaticTransport()
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            unreadable.chmod(0)
+            try:
+                summary = bootstrap(Path(td), Selector.all(), True, context)
+            finally:
+                unreadable.chmod(0o700)
+
+            self.assertEqual(summary, OperationSummary(1, 0, 1, 1))
+            self.assertEqual(len(transport.calls), 1)
+
+    def test_bootstrap_classifies_raw_manifest_publish_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            original_manifest = manifest.read_bytes()
+            context = CommandContext(
+                transport=StaticTransport(),
+                store=RawFailingStore(manifest_error=PermissionError("denied")),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            try:
+                summary = bootstrap(Path(td), Selector.all(), True, context)
+            except OSError as error:
+                summary = type(error).__name__
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+            self.assertEqual(
+                (mic_dir / "source" / "original.pdf").read_bytes(),
+                b"%PDF-1.7\n",
+            )
+
     def test_bootstrap_classifies_source_directory_io_failure_without_network(self):
         with tempfile.TemporaryDirectory() as td:
             _mic_dir, manifest = _make_pending_lifecycle_repo(td)
@@ -626,7 +808,11 @@ class LifecycleCommandTests(unittest.TestCase):
                 store=storage_module.AtomicArtifactStore(),
                 now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
             )
-            with patch.object(Path, "mkdir", side_effect=OSError("permission denied")):
+            with patch.object(
+                storage_module.os,
+                "mkdir",
+                side_effect=OSError("permission denied"),
+            ):
                 try:
                     summary = bootstrap(Path(td), Selector.all(), True, context)
                 except OSError as error:
@@ -855,7 +1041,11 @@ class LifecycleCommandTests(unittest.TestCase):
             with patch.object(
                 storage_module,
                 "_fsync_directory",
-                side_effect=[None, OSError("manifest directory fsync failed")],
+                side_effect=[
+                    None,
+                    None,
+                    OSError("manifest directory fsync failed"),
+                ],
             ):
                 try:
                     first = bootstrap(Path(td), Selector.all(), True, context)
@@ -869,6 +1059,216 @@ class LifecycleCommandTests(unittest.TestCase):
             self.assertEqual(second, OperationSummary(1, 0, 0, 0))
             self.assertEqual(len(transport.calls), 1)
             self.assertEqual(artifact["availability"], "available")
+
+    def test_bootstrap_keeps_committed_manifest_state_when_later_artifact_continues(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            second = {
+                **document["artifacts"][0],
+                "id": "official-manual-two",
+                "source_url": "https://pubs.shure.com/manual-two.pdf",
+                "local_path": "source/original-two.pdf",
+            }
+            document["artifacts"].append(second)
+            manifest.write_text(json.dumps(document), encoding="utf-8")
+            first_body = b"%PDF-1.7\nfirst\n"
+            second_body = b"%PDF-1.7\nsecond\n"
+            transport = SequenceTransport([first_body, second_body])
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            with patch.object(
+                storage_module,
+                "_fsync_directory",
+                side_effect=[
+                    None,
+                    None,
+                    OSError("first manifest directory fsync failed"),
+                    None,
+                    None,
+                    None,
+                ],
+            ):
+                summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            states = {
+                artifact["id"]: artifact["availability"]
+                for artifact in json.loads(
+                    manifest.read_text(encoding="utf-8")
+                )["artifacts"]
+            }
+            self.assertEqual(summary, OperationSummary(1, 0, 1, 1))
+            self.assertEqual(len(transport.calls), 2)
+            self.assertEqual(
+                states,
+                {
+                    "official-specification": "available",
+                    "official-manual-two": "available",
+                },
+            )
+
+    def test_bootstrap_stops_manifest_when_committed_state_cannot_be_recovered(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            second = {
+                **document["artifacts"][0],
+                "id": "official-manual-two",
+                "source_url": "https://pubs.shure.com/manual-two.pdf",
+                "local_path": "source/original-two.pdf",
+            }
+            document["artifacts"].append(second)
+            manifest.write_text(json.dumps(document), encoding="utf-8")
+            transport = SequenceTransport(
+                [b"%PDF-1.7\nfirst\n", b"%PDF-1.7\nsecond\n"]
+            )
+            context = CommandContext(
+                transport=transport,
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+            real_load_manifest = commands_module.load_manifest
+            load_calls = 0
+
+            def fail_recovery_load(*args, **kwargs):
+                nonlocal load_calls
+                load_calls += 1
+                if load_calls == 2:
+                    raise PermissionError("recovery denied")
+                return real_load_manifest(*args, **kwargs)
+
+            with (
+                patch.object(
+                    storage_module,
+                    "_fsync_directory",
+                    side_effect=[
+                        None,
+                        None,
+                        OSError("first manifest directory fsync failed"),
+                        None,
+                        None,
+                        None,
+                    ],
+                ),
+                patch.object(
+                    commands_module,
+                    "load_manifest",
+                    side_effect=fail_recovery_load,
+                ),
+            ):
+                summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            states = {
+                artifact["id"]: artifact["availability"]
+                for artifact in json.loads(
+                    manifest.read_text(encoding="utf-8")
+                )["artifacts"]
+            }
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(len(transport.calls), 1)
+            self.assertEqual(
+                states,
+                {
+                    "official-specification": "available",
+                    "official-manual-two": "pending",
+                },
+            )
+
+    def test_bootstrap_does_not_mark_unavailable_when_orphan_appears_before_failure_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            orphan = mic_dir / "source" / "original.pdf"
+            orphan_body = b"%PDF-1.7\nracing orphan\n"
+            original_manifest = manifest.read_bytes()
+            real_local_file_exists = commands_module.local_file_exists
+            existence_checks = 0
+
+            def create_orphan_on_failure_check(path, root):
+                nonlocal existence_checks
+                existence_checks += 1
+                if existence_checks == 1:
+                    orphan.write_bytes(orphan_body)
+                return real_local_file_exists(path, root)
+
+            context = CommandContext(
+                transport=ErrorTransport(
+                    RemoteHTTPError(404, "https://pubs.shure.com/manual.pdf")
+                ),
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            with patch.object(
+                commands_module,
+                "local_file_exists",
+                side_effect=create_orphan_on_failure_check,
+            ):
+                summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(existence_checks, 1)
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 2))
+            self.assertEqual(orphan.read_bytes(), orphan_body)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+
+    def test_bootstrap_never_overwrites_orphan_created_during_download(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            orphan = mic_dir / "source" / "original.pdf"
+            orphan_body = b"%PDF-1.7\nlate orphan\n"
+            remote_body = b"%PDF-1.7\nremote body\n"
+            original_manifest = manifest.read_bytes()
+
+            class OrphanCreatingTransport:
+                def download(self, request, target):
+                    orphan.write_bytes(orphan_body)
+                    target.write(remote_body)
+                    return DownloadResult(
+                        final_url=request.url,
+                        size_bytes=len(remote_body),
+                        sha256=hashlib.sha256(remote_body).hexdigest(),
+                        content_type=request.expected_media_type,
+                        status=200,
+                    )
+
+            context = CommandContext(
+                transport=OrphanCreatingTransport(),
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 2))
+            self.assertEqual(orphan.read_bytes(), orphan_body)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+
+    def test_bootstrap_404_keeps_orphan_created_during_download_pending(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic_dir, manifest = _make_pending_lifecycle_repo(td)
+            orphan = mic_dir / "source" / "original.pdf"
+            orphan_body = b"%PDF-1.7\nlate orphan\n"
+            original_manifest = manifest.read_bytes()
+
+            class OrphanCreating404Transport:
+                def download(self, request, target):
+                    orphan.write_bytes(orphan_body)
+                    raise RemoteHTTPError(404, request.url)
+
+            context = CommandContext(
+                transport=OrphanCreating404Transport(),
+                store=storage_module.AtomicArtifactStore(),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = bootstrap(Path(td), Selector.all(), True, context)
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 2))
+            self.assertEqual(orphan.read_bytes(), orphan_body)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
 
     def test_fetch_restores_missing_available_original_from_pinned_metadata(self):
         with tempfile.TemporaryDirectory() as td:
@@ -891,6 +1291,27 @@ class LifecycleCommandTests(unittest.TestCase):
             self.assertEqual(request.expected_size, len(body))
             self.assertEqual(request.max_size, len(body))
             self.assertEqual(request.expected_sha256, hashlib.sha256(body).hexdigest())
+
+    def test_fetch_classifies_raw_local_store_file_not_found_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            _mic_dir, manifest, target, body = _make_available_svg_repo(td)
+            original_manifest = manifest.read_bytes()
+            transport = StaticTransport(body)
+            context = CommandContext(
+                transport=transport,
+                store=RawFailingStore(blob_errors=[FileNotFoundError("gone")]),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            try:
+                summary = fetch(Path(td), Selector.all(), context)
+            except OSError as error:
+                summary = type(error).__name__
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertFalse(target.exists())
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+            self.assertEqual(transport.calls, [])
 
     def test_fetch_never_contacts_remote_or_overwrites_an_existing_target(self):
         observed = []
@@ -1170,6 +1591,29 @@ class CLITests(unittest.TestCase):
             self.assertEqual(exit_code, 2)
             self.assertEqual(stdout.getvalue(), "available=0 unavailable=0 failed=1\n")
             self.assertEqual(stderr.getvalue(), "")
+
+    def test_cli_classifies_manifest_probe_oserror(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with (
+            patch.object(
+                source_assets_cli.os,
+                "stat",
+                side_effect=PermissionError("manifest probe denied"),
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            try:
+                exit_code = source_assets_cli.main(
+                    ["verify", "--mic", "shure-sm58"]
+                )
+            except OSError as error:
+                exit_code = type(error).__name__
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "available=0 unavailable=0 failed=1\n")
+        self.assertEqual(stderr.getvalue(), "")
 
 
 class NetworkPolicyTests(unittest.TestCase):
@@ -2100,6 +2544,44 @@ class StorageContractTests(unittest.TestCase):
             with self.assertRaises(ContractError):
                 resolve_local_path(mic, "source/manual.pdf")
 
+    def test_resolve_local_path_converts_resolve_oserror_to_contract_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic = Path(td) / "data" / "mic"
+            (mic / "source").mkdir(parents=True)
+
+            with patch.object(
+                Path,
+                "resolve",
+                side_effect=PermissionError("resolve denied"),
+            ):
+                try:
+                    resolve_local_path(mic, "source/manual.pdf")
+                except Exception as error:
+                    observed = (type(error), getattr(error, "exit_code", None))
+                else:
+                    observed = None
+
+            self.assertEqual(observed, (ContractError, 1))
+
+    def test_resolve_local_path_converts_symlink_probe_oserror_to_contract_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            mic = Path(td) / "data" / "mic"
+            (mic / "source").mkdir(parents=True)
+
+            with patch.object(
+                Path,
+                "is_symlink",
+                side_effect=PermissionError("lstat denied"),
+            ):
+                try:
+                    resolve_local_path(mic, "source/manual.pdf")
+                except Exception as error:
+                    observed = (type(error), getattr(error, "exit_code", None))
+                else:
+                    observed = None
+
+            self.assertEqual(observed, (ContractError, 1))
+
     def test_validate_signature_rejects_non_pdf_content(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "manual.pdf"
@@ -2231,26 +2713,375 @@ class StorageContractTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.exit_code, 1)
 
+    def test_atomic_store_converts_parent_and_temp_open_failures_to_contract_error(self):
+        cases = (
+            ("blob", "parent", PermissionError("parent denied")),
+            ("blob", "temp", FileNotFoundError("parent disappeared")),
+            ("manifest", "parent", PermissionError("parent denied")),
+            ("manifest", "temp", FileNotFoundError("parent disappeared")),
+        )
+        for operation, stage, failure in cases:
+            with (
+                self.subTest(operation=operation, stage=stage),
+                tempfile.TemporaryDirectory() as td,
+            ):
+                target = Path(td) / (
+                    "manual.pdf" if operation == "blob" else "source-manifest.json"
+                )
+                old_content = b"old target"
+                target.write_bytes(old_content)
+                real_open = os.open
+
+                def failing_open(path, flags, mode=0o777, *, dir_fd=None):
+                    should_fail = (
+                        (stage == "parent" and flags & getattr(os, "O_DIRECTORY", 0))
+                        or (stage == "temp" and flags & os.O_CREAT)
+                    )
+                    if should_fail:
+                        raise failure
+                    if dir_fd is None:
+                        return real_open(path, flags, mode)
+                    return real_open(path, flags, mode, dir_fd=dir_fd)
+
+                with patch.object(storage_module.os, "open", failing_open):
+                    try:
+                        if operation == "blob":
+                            AtomicArtifactStore().publish_blob(
+                                target,
+                                "application/pdf",
+                                lambda handle: handle.write(b"%PDF-new"),
+                            )
+                        else:
+                            AtomicArtifactStore().publish_manifest(
+                                target,
+                                {"schema_version": 1},
+                            )
+                    except Exception as error:
+                        observed = (type(error), getattr(error, "exit_code", None))
+                    else:
+                        observed = None
+
+                self.assertEqual(observed, (ContractError, 1))
+                self.assertEqual(target.read_bytes(), old_content)
+                self.assertEqual(
+                    list(target.parent.glob(f".{target.name}.*.tmp")),
+                    [],
+                )
+
+    def test_atomic_store_converts_fdopen_and_producer_oserror_to_contract_error(self):
+        cases = ("blob-fdopen", "blob-producer", "manifest-fdopen")
+        for operation in cases:
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as td:
+                target = Path(td) / (
+                    "source-manifest.json"
+                    if operation == "manifest-fdopen"
+                    else "manual.pdf"
+                )
+                target.write_bytes(b"old target")
+                patches = (
+                    patch.object(
+                        storage_module.os,
+                        "fdopen",
+                        side_effect=PermissionError("fdopen denied"),
+                    )
+                    if operation.endswith("fdopen")
+                    else nullcontext()
+                )
+                with patches:
+                    try:
+                        if operation == "manifest-fdopen":
+                            AtomicArtifactStore().publish_manifest(
+                                target,
+                                {"schema_version": 1},
+                            )
+                        else:
+                            def producer(handle):
+                                if operation == "blob-producer":
+                                    raise PermissionError("producer write denied")
+                                handle.write(b"%PDF-new")
+
+                            AtomicArtifactStore().publish_blob(
+                                target,
+                                "application/pdf",
+                                producer,
+                            )
+                    except Exception as error:
+                        observed = (type(error), getattr(error, "exit_code", None))
+                    else:
+                        observed = None
+
+                self.assertEqual(observed, (ContractError, 1))
+                self.assertEqual(target.read_bytes(), b"old target")
+                self.assertEqual(
+                    list(target.parent.glob(f".{target.name}.*.tmp")),
+                    [],
+                )
+
+    def test_publish_blob_rejects_parent_swap_after_producer_before_replace(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "data" / "mic" / "source"
+            source.mkdir(parents=True)
+            target = source / "manual.pdf"
+            target.write_bytes(b"old target")
+            parked = root / "parked-source"
+            outside = root / "outside"
+            outside.mkdir()
+
+            def swapping_producer(handle):
+                handle.write(b"%PDF-new")
+                source.rename(parked)
+                source.symlink_to(outside, target_is_directory=True)
+
+            try:
+                AtomicArtifactStore(root).publish_blob(
+                    target,
+                    "application/pdf",
+                    swapping_producer,
+                )
+            except Exception as error:
+                observed = (type(error), getattr(error, "exit_code", None))
+            else:
+                observed = None
+
+            self.assertEqual(observed, (ContractError, 1))
+            self.assertEqual((parked / "manual.pdf").read_bytes(), b"old target")
+            self.assertEqual(
+                [path for path in outside.rglob("*") if path.is_file()],
+                [],
+            )
+            self.assertEqual(list(parked.glob(".manual.pdf.*.tmp")), [])
+
+    def test_atomic_store_rejects_intermediate_microphone_symlink_swap(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            mic = root / "data" / "mic"
+            source = mic / "source"
+            source.mkdir(parents=True)
+            target = source / "manual.pdf"
+            parked = root / "parked-mic"
+            outside_mic = root / "outside" / "mic"
+            (outside_mic / "source").mkdir(parents=True)
+            real_open = os.open
+            swapped = False
+
+            def swapping_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if not swapped and dir_fd is not None and os.fspath(path) == "mic":
+                    swapped = True
+                    mic.rename(parked)
+                    mic.symlink_to(outside_mic, target_is_directory=True)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with patch.object(storage_module.os, "open", swapping_open):
+                try:
+                    AtomicArtifactStore().publish_blob(
+                        target,
+                        "application/pdf",
+                        lambda handle: handle.write(b"%PDF-new"),
+                    )
+                except Exception as error:
+                    observed = (type(error), getattr(error, "exit_code", None))
+                else:
+                    observed = None
+
+            self.assertEqual(observed, (ContractError, 1))
+            self.assertTrue(swapped)
+            self.assertEqual(
+                [path for path in outside_mic.rglob("*") if path.is_file()],
+                [],
+            )
+
+    def test_publish_manifest_rejects_microphone_swap_before_replace(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            mic = root / "data" / "mic"
+            mic.mkdir(parents=True)
+            target = mic / "source-manifest.json"
+            target.write_bytes(b"old manifest\n")
+            parked = root / "parked-mic"
+            outside_mic = root / "outside" / "mic"
+            outside_mic.mkdir(parents=True)
+            outside_manifest = outside_mic / "source-manifest.json"
+            outside_manifest.write_bytes(b"outside sentinel\n")
+            real_fsync = os.fsync
+            swapped = False
+
+            def swapping_fsync(fd):
+                nonlocal swapped
+                result = real_fsync(fd)
+                if not swapped:
+                    swapped = True
+                    mic.rename(parked)
+                    mic.symlink_to(outside_mic, target_is_directory=True)
+                return result
+
+            with patch.object(storage_module.os, "fsync", swapping_fsync):
+                try:
+                    AtomicArtifactStore(root).publish_manifest(
+                        target,
+                        {"schema_version": 1},
+                    )
+                except Exception as error:
+                    observed = (type(error), getattr(error, "exit_code", None))
+                else:
+                    observed = None
+
+            self.assertEqual(observed, (ContractError, 1))
+            self.assertTrue(swapped)
+            self.assertEqual(
+                (parked / "source-manifest.json").read_bytes(),
+                b"old manifest\n",
+            )
+            self.assertEqual(outside_manifest.read_bytes(), b"outside sentinel\n")
+            self.assertEqual(list(parked.glob(".source-manifest.json.*.tmp")), [])
+
+    def test_atomic_store_rejects_parent_swap_inside_replace(self):
+        for operation in ("blob", "manifest"):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                mic = root / "data" / "mic"
+                source = mic / "source"
+                source.mkdir(parents=True)
+                replacement_mic = root / "replacement-mic"
+                replacement_source = replacement_mic / "source"
+                replacement_source.mkdir(parents=True)
+                if operation == "blob":
+                    target = source / "manual.pdf"
+                    replacement_target = replacement_source / "manual.pdf"
+                    target.write_bytes(b"%PDF-old\n")
+                    replacement_target.write_bytes(b"%PDF-replacement\n")
+                else:
+                    target = mic / "source-manifest.json"
+                    replacement_target = replacement_mic / "source-manifest.json"
+                    target.write_bytes(b"old manifest\n")
+                    replacement_target.write_bytes(b"replacement manifest\n")
+                parked = root / "parked-mic"
+                real_replace = os.replace
+                swapped = False
+
+                def swapping_replace(
+                    source_name,
+                    target_name,
+                    *,
+                    src_dir_fd=None,
+                    dst_dir_fd=None,
+                ):
+                    nonlocal swapped
+                    if not swapped:
+                        swapped = True
+                        mic.rename(parked)
+                        replacement_mic.rename(mic)
+                    return real_replace(
+                        source_name,
+                        target_name,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=dst_dir_fd,
+                    )
+
+                with patch.object(storage_module.os, "replace", swapping_replace):
+                    try:
+                        if operation == "blob":
+                            AtomicArtifactStore(root).publish_blob(
+                                target,
+                                "application/pdf",
+                                lambda handle: handle.write(b"%PDF-new\n"),
+                            )
+                        else:
+                            AtomicArtifactStore(root).publish_manifest(
+                                target,
+                                {"schema_version": 1},
+                            )
+                    except Exception as error:
+                        observed = (type(error), getattr(error, "exit_code", None))
+                    else:
+                        observed = None
+
+                self.assertTrue(swapped)
+                self.assertEqual(observed, (ContractError, 1))
+                self.assertEqual(
+                    target.read_bytes(),
+                    b"%PDF-replacement\n"
+                    if operation == "blob"
+                    else b"replacement manifest\n",
+                )
+
+    def test_no_clobber_link_rejects_parent_swap_inside_link(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            mic = root / "data" / "mic"
+            source = mic / "source"
+            source.mkdir(parents=True)
+            candidate = source / ".manual.pdf.candidate"
+            candidate.write_bytes(b"%PDF-candidate\n")
+            target = source / "manual.pdf"
+            replacement_mic = root / "replacement-mic"
+            (replacement_mic / "source").mkdir(parents=True)
+            parked = root / "parked-mic"
+            real_link = os.link
+            swapped = False
+
+            def swapping_link(
+                source_name,
+                target_name,
+                *,
+                src_dir_fd=None,
+                dst_dir_fd=None,
+                follow_symlinks=True,
+            ):
+                nonlocal swapped
+                if not swapped:
+                    swapped = True
+                    mic.rename(parked)
+                    replacement_mic.rename(mic)
+                return real_link(
+                    source_name,
+                    target_name,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                    follow_symlinks=follow_symlinks,
+                )
+
+            with patch.object(storage_module.os, "link", swapping_link):
+                try:
+                    storage_module.link_local_file_if_absent(candidate, target, root)
+                except Exception as error:
+                    observed = (type(error), getattr(error, "exit_code", None))
+                else:
+                    observed = None
+
+            self.assertTrue(swapped)
+            self.assertEqual(observed, (ContractError, 1))
+            self.assertFalse((mic / "source" / "manual.pdf").exists())
+            self.assertEqual(
+                (parked / "source" / "manual.pdf").read_bytes(),
+                b"%PDF-candidate\n",
+            )
+
 
     def test_publish_blob_is_atomic_durable_and_uses_same_directory_temp(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "manual.pdf"
             content = b"%PDF-1.7\nfixture\n"
             events = []
-            temp_paths = []
+            temp_parent_inodes = []
             real_fdopen = os.fdopen
             real_fsync = os.fsync
-            real_mkstemp = tempfile.mkstemp
+            real_open = os.open
             real_replace = os.replace
             fsync_calls = 0
 
             def recording_fdopen(*args, **kwargs):
                 return _RecordingBinaryHandle(real_fdopen(*args, **kwargs), events)
 
-            def recording_mkstemp(*args, **kwargs):
-                fd, name = real_mkstemp(*args, **kwargs)
-                temp_paths.append(Path(name))
-                return fd, name
+            def recording_open(path, flags, mode=0o777, *, dir_fd=None):
+                if flags & os.O_CREAT:
+                    temp_parent_inodes.append(os.fstat(dir_fd).st_ino)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
 
             def recording_fsync(fd):
                 nonlocal fsync_calls
@@ -2258,9 +3089,9 @@ class StorageContractTests(unittest.TestCase):
                 events.append("file fsync" if fsync_calls == 1 else "directory fsync")
                 return real_fsync(fd)
 
-            def recording_replace(source, destination):
+            def recording_replace(source, destination, **kwargs):
                 events.append("os.replace")
-                return real_replace(source, destination)
+                return real_replace(source, destination, **kwargs)
 
             def producer(handle):
                 handle.write(content)
@@ -2269,22 +3100,22 @@ class StorageContractTests(unittest.TestCase):
             with (
                 patch.object(storage_module.os, "fdopen", recording_fdopen),
                 patch.object(storage_module.os, "fsync", recording_fsync),
+                patch.object(storage_module.os, "open", recording_open),
                 patch.object(storage_module.os, "replace", recording_replace),
-                patch.object(storage_module.tempfile, "mkstemp", recording_mkstemp),
             ):
                 result = AtomicArtifactStore().publish_blob(target, "application/pdf", producer)
 
             self.assertEqual(
                 (
                     events,
-                    [path.parent for path in temp_paths],
+                    temp_parent_inodes,
                     result,
                     target.read_bytes() if target.exists() else None,
                     list(target.parent.glob(f".{target.name}.*.tmp")),
                 ),
                 (
                     ["write", "flush", "file fsync", "os.replace", "directory fsync"],
-                    [target.parent],
+                    [target.parent.stat().st_ino],
                     (
                         "producer-result",
                         FileDigest(
@@ -2336,7 +3167,7 @@ class StorageContractTests(unittest.TestCase):
             caught = None
             with patch.object(
                 storage_module,
-                "validate_signature",
+                "_validate_signature_content",
                 side_effect=IntegrityError("validator failure"),
             ):
                 try:
@@ -2355,6 +3186,41 @@ class StorageContractTests(unittest.TestCase):
                     list(target.parent.glob(f".{target.name}.*.tmp")),
                 ),
                 ("validator failure", b"old target", []),
+            )
+
+    def test_publish_blob_cleanup_oserror_does_not_mask_integrity_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "manual.pdf"
+            target.write_bytes(b"old target")
+            expected = IntegrityError("primary integrity failure")
+
+            with (
+                patch.object(
+                    storage_module,
+                    "_validate_signature_content",
+                    side_effect=expected,
+                ),
+                patch.object(
+                    storage_module.os,
+                    "unlink",
+                    side_effect=PermissionError("cleanup denied"),
+                ),
+            ):
+                try:
+                    AtomicArtifactStore().publish_blob(
+                        target,
+                        "application/pdf",
+                        lambda handle: handle.write(b"%PDF-new"),
+                    )
+                except SourceAssetError as error:
+                    caught = error
+                else:
+                    caught = None
+
+            self.assertIs(caught, expected)
+            self.assertEqual(target.read_bytes(), b"old target")
+            self.assertTrue(
+                any("清理暫存資源失敗" in note for note in getattr(caught, "__notes__", ()))
             )
 
     def test_publish_blob_preserves_existing_source_asset_error(self):
@@ -2498,20 +3364,22 @@ class StorageContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "source-manifest.json"
             events = []
-            temp_paths = []
+            temp_parent_inodes = []
             real_fdopen = os.fdopen
             real_fsync = os.fsync
-            real_mkstemp = tempfile.mkstemp
+            real_open = os.open
             real_replace = os.replace
             fsync_calls = 0
 
             def recording_fdopen(*args, **kwargs):
                 return _RecordingBinaryHandle(real_fdopen(*args, **kwargs), events)
 
-            def recording_mkstemp(*args, **kwargs):
-                fd, name = real_mkstemp(*args, **kwargs)
-                temp_paths.append(Path(name))
-                return fd, name
+            def recording_open(path, flags, mode=0o777, *, dir_fd=None):
+                if flags & os.O_CREAT:
+                    temp_parent_inodes.append(os.fstat(dir_fd).st_ino)
+                if dir_fd is None:
+                    return real_open(path, flags, mode)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
 
             def recording_fsync(fd):
                 nonlocal fsync_calls
@@ -2519,15 +3387,15 @@ class StorageContractTests(unittest.TestCase):
                 events.append("file fsync" if fsync_calls == 1 else "directory fsync")
                 return real_fsync(fd)
 
-            def recording_replace(source, destination):
+            def recording_replace(source, destination, **kwargs):
                 events.append("os.replace")
-                return real_replace(source, destination)
+                return real_replace(source, destination, **kwargs)
 
             with (
                 patch.object(storage_module.os, "fdopen", recording_fdopen),
                 patch.object(storage_module.os, "fsync", recording_fsync),
+                patch.object(storage_module.os, "open", recording_open),
                 patch.object(storage_module.os, "replace", recording_replace),
-                patch.object(storage_module.tempfile, "mkstemp", recording_mkstemp),
             ):
                 AtomicArtifactStore().publish_manifest(
                     target,
@@ -2537,13 +3405,13 @@ class StorageContractTests(unittest.TestCase):
             self.assertEqual(
                 (
                     events,
-                    [path.parent for path in temp_paths],
+                    temp_parent_inodes,
                     target.read_bytes() if target.exists() else None,
                     list(target.parent.glob(f".{target.name}.*.tmp")),
                 ),
                 (
                     ["write", "flush", "file fsync", "os.replace", "directory fsync"],
-                    [target.parent],
+                    [target.parent.stat().st_ino],
                     b'{"a":[2,1],"z":"\xe7\xb5\x82"}\n',
                     [],
                 ),
