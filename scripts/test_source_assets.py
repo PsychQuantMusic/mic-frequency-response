@@ -297,24 +297,52 @@ class RecordingArtifactStore:
         self.delegate = storage_module.AtomicArtifactStore()
         self.events = []
 
-    def publish_blob(self, target, media_type, producer):
-        result = self.delegate.publish_blob(target, media_type, producer)
+    def publish_blob(
+        self,
+        target,
+        media_type,
+        producer,
+        *,
+        expected_parent_identity=None,
+    ):
+        result = self.delegate.publish_blob(
+            target,
+            media_type,
+            producer,
+            expected_parent_identity=expected_parent_identity,
+        )
         self.events.append(("blob", target))
         return result
 
-    def publish_manifest(self, target, document):
+    def publish_manifest(self, target, document, *, expected_parent_identity=None):
         self.events.append(("manifest", target))
-        return self.delegate.publish_manifest(target, document)
+        return self.delegate.publish_manifest(
+            target,
+            document,
+            expected_parent_identity=expected_parent_identity,
+        )
 
 
 class FailingManifestStore:
     def __init__(self):
         self.delegate = storage_module.AtomicArtifactStore()
 
-    def publish_blob(self, target, media_type, producer):
-        return self.delegate.publish_blob(target, media_type, producer)
+    def publish_blob(
+        self,
+        target,
+        media_type,
+        producer,
+        *,
+        expected_parent_identity=None,
+    ):
+        return self.delegate.publish_blob(
+            target,
+            media_type,
+            producer,
+            expected_parent_identity=expected_parent_identity,
+        )
 
-    def publish_manifest(self, target, document):
+    def publish_manifest(self, target, document, *, expected_parent_identity=None):
         raise ContractError("manifest 寫入失敗")
 
 
@@ -324,17 +352,33 @@ class RawFailingStore:
         self.blob_errors = list(blob_errors)
         self.manifest_error = manifest_error
 
-    def publish_blob(self, target, media_type, producer):
+    def publish_blob(
+        self,
+        target,
+        media_type,
+        producer,
+        *,
+        expected_parent_identity=None,
+    ):
         if self.blob_errors:
             error = self.blob_errors.pop(0)
             if error is not None:
                 raise error
-        return self.delegate.publish_blob(target, media_type, producer)
+        return self.delegate.publish_blob(
+            target,
+            media_type,
+            producer,
+            expected_parent_identity=expected_parent_identity,
+        )
 
-    def publish_manifest(self, target, document):
+    def publish_manifest(self, target, document, *, expected_parent_identity=None):
         if self.manifest_error is not None:
             raise self.manifest_error
-        return self.delegate.publish_manifest(target, document)
+        return self.delegate.publish_manifest(
+            target,
+            document,
+            expected_parent_identity=expected_parent_identity,
+        )
 
 
 def _make_pending_lifecycle_repo(root, *, create_source=True):
@@ -1187,12 +1231,12 @@ class LifecycleCommandTests(unittest.TestCase):
             real_local_file_exists = commands_module.local_file_exists
             existence_checks = 0
 
-            def create_orphan_on_failure_check(path, root):
+            def create_orphan_on_failure_check(path, root, **kwargs):
                 nonlocal existence_checks
                 existence_checks += 1
                 if existence_checks == 1:
                     orphan.write_bytes(orphan_body)
-                return real_local_file_exists(path, root)
+                return real_local_file_exists(path, root, **kwargs)
 
             context = CommandContext(
                 transport=ErrorTransport(
@@ -1246,6 +1290,75 @@ class LifecycleCommandTests(unittest.TestCase):
             self.assertEqual(orphan.read_bytes(), orphan_body)
             self.assertEqual(manifest.read_bytes(), original_manifest)
 
+    def test_bootstrap_rejects_microphone_swap_when_no_clobber_link_finds_old_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            mic_dir, manifest = _make_pending_lifecycle_repo(root)
+            body = b"%PDF-1.7\nexact remote body\n"
+            target = mic_dir / "source" / "original.pdf"
+            target.write_bytes(body)
+
+            replacement_mic = root / "replacement-mic"
+            shutil.copytree(mic_dir, replacement_mic)
+            replacement_manifest = replacement_mic / "source-manifest.json"
+            replacement_document = json.loads(
+                replacement_manifest.read_text(encoding="utf-8")
+            )
+            replacement_document["references"] = [
+                {
+                    "role": "product-page",
+                    "url": "https://pubs.shure.com/replacement",
+                }
+            ]
+            replacement_manifest.write_text(
+                json.dumps(replacement_document),
+                encoding="utf-8",
+            )
+            replacement_manifest_bytes = replacement_manifest.read_bytes()
+            original_manifest_bytes = manifest.read_bytes()
+            parked_mic = root / "parked-mic"
+            real_link = os.link
+            swapped = False
+
+            def swapping_link(
+                source_name,
+                target_name,
+                *,
+                src_dir_fd=None,
+                dst_dir_fd=None,
+                follow_symlinks=True,
+            ):
+                nonlocal swapped
+                if not swapped:
+                    swapped = True
+                    mic_dir.rename(parked_mic)
+                    replacement_mic.rename(mic_dir)
+                return real_link(
+                    source_name,
+                    target_name,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                    follow_symlinks=follow_symlinks,
+                )
+
+            context = CommandContext(
+                transport=StaticTransport(body),
+                store=storage_module.AtomicArtifactStore(root),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            with patch.object(storage_module.os, "link", swapping_link):
+                summary = bootstrap(root, Selector.all(), True, context)
+
+            self.assertTrue(swapped)
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 1))
+            self.assertEqual(manifest.read_bytes(), replacement_manifest_bytes)
+            self.assertEqual(
+                (parked_mic / "source-manifest.json").read_bytes(),
+                original_manifest_bytes,
+            )
+            self.assertEqual(target.read_bytes(), body)
+
     def test_bootstrap_404_keeps_orphan_created_during_download_pending(self):
         with tempfile.TemporaryDirectory() as td:
             mic_dir, manifest = _make_pending_lifecycle_repo(td)
@@ -1291,6 +1404,71 @@ class LifecycleCommandTests(unittest.TestCase):
             self.assertEqual(request.expected_size, len(body))
             self.assertEqual(request.max_size, len(body))
             self.assertEqual(request.expected_sha256, hashlib.sha256(body).hexdigest())
+
+    def test_fetch_preserves_different_valid_target_created_during_download(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _mic_dir, manifest, target, body = _make_available_svg_repo(root)
+            late_body = (
+                b'<svg xmlns="http://www.w3.org/2000/svg"><text>late</text></svg>'
+            )
+            original_manifest = manifest.read_bytes()
+
+            class LateTargetTransport:
+                def download(self, request, output):
+                    target.write_bytes(late_body)
+                    output.write(body)
+                    return DownloadResult(
+                        final_url=request.url,
+                        size_bytes=len(body),
+                        sha256=hashlib.sha256(body).hexdigest(),
+                        content_type=request.expected_media_type,
+                        status=200,
+                    )
+
+            context = CommandContext(
+                transport=LateTargetTransport(),
+                store=storage_module.AtomicArtifactStore(root),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = fetch(root, Selector.all(), context)
+
+            self.assertEqual(summary, OperationSummary(0, 0, 1, 2))
+            self.assertEqual(target.read_bytes(), late_body)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+            self.assertEqual(list(target.parent.glob(".*.candidate")), [])
+
+    def test_fetch_adopts_exact_target_created_during_download(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _mic_dir, manifest, target, body = _make_available_svg_repo(root)
+            original_manifest = manifest.read_bytes()
+
+            class ExactLateTargetTransport:
+                def download(self, request, output):
+                    target.write_bytes(body)
+                    output.write(body)
+                    return DownloadResult(
+                        final_url=request.url,
+                        size_bytes=len(body),
+                        sha256=hashlib.sha256(body).hexdigest(),
+                        content_type=request.expected_media_type,
+                        status=200,
+                    )
+
+            context = CommandContext(
+                transport=ExactLateTargetTransport(),
+                store=storage_module.AtomicArtifactStore(root),
+                now=lambda: datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            summary = fetch(root, Selector.all(), context)
+
+            self.assertEqual(summary, OperationSummary(1, 0, 0, 0))
+            self.assertEqual(target.read_bytes(), body)
+            self.assertEqual(manifest.read_bytes(), original_manifest)
+            self.assertEqual(list(target.parent.glob(".*.candidate")), [])
 
     def test_fetch_classifies_raw_local_store_file_not_found_error(self):
         with tempfile.TemporaryDirectory() as td:

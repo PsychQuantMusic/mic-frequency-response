@@ -21,6 +21,12 @@ class FileDigest:
     sha256: str
 
 
+@dataclass(frozen=True)
+class DirectoryIdentity:
+    device: int
+    inode: int
+
+
 def resolve_local_path(mic_dir: Path, local_path: str) -> Path:
     components = local_path.split("/")
     if (
@@ -90,9 +96,17 @@ class ArtifactStore(Protocol):
         target: Path,
         media_type: str,
         producer: BlobProducer,
+        *,
+        expected_parent_identity: DirectoryIdentity | None = None,
     ) -> tuple[object, FileDigest]: ...
 
-    def publish_manifest(self, target: Path, document: dict) -> None: ...
+    def publish_manifest(
+        self,
+        target: Path,
+        document: dict,
+        *,
+        expected_parent_identity: DirectoryIdentity | None = None,
+    ) -> None: ...
 
 
 class AtomicArtifactStore:
@@ -106,12 +120,19 @@ class AtomicArtifactStore:
         target: Path,
         media_type: str,
         producer: BlobProducer,
+        *,
+        expected_parent_identity: DirectoryIdentity | None = None,
     ) -> tuple[object, FileDigest]:
         target = _lexical_absolute(target)
         parent_fd = _open_parent_directory(target, self._trusted_root)
         temp_fd = -1
         temp_name: str | None = None
         try:
+            _assert_open_directory_identity(
+                parent_fd,
+                expected_parent_identity,
+                target.parent,
+            )
             temp_fd, temp_name = _create_temp_file(parent_fd, target.name)
             try:
                 handle = os.fdopen(temp_fd, "w+b")
@@ -184,7 +205,13 @@ class AtomicArtifactStore:
                 target=target,
             )
 
-    def publish_manifest(self, target: Path, document: dict) -> None:
+    def publish_manifest(
+        self,
+        target: Path,
+        document: dict,
+        *,
+        expected_parent_identity: DirectoryIdentity | None = None,
+    ) -> None:
         target = _lexical_absolute(target)
         try:
             payload = (
@@ -203,6 +230,11 @@ class AtomicArtifactStore:
         temp_fd = -1
         temp_name: str | None = None
         try:
+            _assert_open_directory_identity(
+                parent_fd,
+                expected_parent_identity,
+                target.parent,
+            )
             temp_fd, temp_name = _create_temp_file(parent_fd, target.name)
             try:
                 handle = os.fdopen(temp_fd, "w+b")
@@ -298,20 +330,62 @@ def ensure_local_directory(directory: Path, trusted_root: Path) -> None:
         )
 
 
-def local_file_exists(path: Path, trusted_root: Path) -> bool:
+def capture_local_directory_identity(
+    directory: Path,
+    trusted_root: Path,
+) -> DirectoryIdentity:
+    directory = _lexical_absolute(directory)
+    trusted_root = _lexical_absolute(trusted_root)
+    parent_fd = _open_parent_directory(directory / ".identity", trusted_root)
+    primary_error = None
+    try:
+        try:
+            metadata = os.fstat(parent_fd)
+        except OSError as error:
+            raise ContractError(f"無法取得資料夾身分：{directory}") from error
+        return DirectoryIdentity(metadata.st_dev, metadata.st_ino)
+    except BaseException as error:
+        primary_error = error
+        raise
+    finally:
+        _close_descriptors(
+            (parent_fd,),
+            f"關閉資料夾失敗：{directory}",
+            primary_error,
+        )
+
+
+def local_file_exists(
+    path: Path,
+    trusted_root: Path,
+    *,
+    expected_parent_identity: DirectoryIdentity | None = None,
+) -> bool:
     path = _lexical_absolute(path)
     parent_fd = _open_parent_directory(path, _lexical_absolute(trusted_root))
     primary_error = None
     try:
+        _assert_open_directory_identity(
+            parent_fd,
+            expected_parent_identity,
+            path.parent,
+        )
         try:
             metadata = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
         except FileNotFoundError:
-            return False
+            exists = False
         except OSError as error:
             raise ContractError(f"無法檢查本機檔案：{path}") from error
-        if not stat.S_ISREG(metadata.st_mode):
+        else:
+            exists = True
+        if exists and not stat.S_ISREG(metadata.st_mode):
             raise ContractError(f"本機 artifact 必須是 regular file：{path}")
-        return True
+        _assert_parent_still_attached(
+            path,
+            _lexical_absolute(trusted_root),
+            parent_fd,
+        )
+        return exists
     except BaseException as error:
         primary_error = error
         raise
@@ -319,12 +393,23 @@ def local_file_exists(path: Path, trusted_root: Path) -> bool:
         _close_descriptors((parent_fd,), f"關閉資料夾失敗：{path.parent}", primary_error)
 
 
-def inspect_local_file(path: Path, media_type: str, trusted_root: Path) -> FileDigest:
+def inspect_local_file(
+    path: Path,
+    media_type: str,
+    trusted_root: Path,
+    *,
+    expected_parent_identity: DirectoryIdentity | None = None,
+) -> FileDigest:
     path = _lexical_absolute(path)
     parent_fd = _open_parent_directory(path, _lexical_absolute(trusted_root))
     file_fd = -1
     primary_error = None
     try:
+        _assert_open_directory_identity(
+            parent_fd,
+            expected_parent_identity,
+            path.parent,
+        )
         try:
             file_fd = os.open(path.name, _file_read_flags(), dir_fd=parent_fd)
             metadata = os.fstat(file_fd)
@@ -339,6 +424,11 @@ def inspect_local_file(path: Path, media_type: str, trusted_root: Path) -> FileD
         except OSError as error:
             raise ContractError(f"無法讀取檔案：{path}") from error
         _validate_signature_content(content, media_type, path)
+        _assert_parent_still_attached(
+            path,
+            _lexical_absolute(trusted_root),
+            parent_fd,
+        )
         return FileDigest(len(content), hashlib.sha256(content).hexdigest())
     except BaseException as error:
         primary_error = error
@@ -355,6 +445,8 @@ def link_local_file_if_absent(
     candidate: Path,
     target: Path,
     trusted_root: Path,
+    *,
+    expected_parent_identity: DirectoryIdentity | None = None,
 ) -> bool:
     candidate = _lexical_absolute(candidate)
     target = _lexical_absolute(target)
@@ -363,6 +455,11 @@ def link_local_file_if_absent(
     parent_fd = _open_parent_directory(target, _lexical_absolute(trusted_root))
     primary_error = None
     try:
+        _assert_open_directory_identity(
+            parent_fd,
+            expected_parent_identity,
+            target.parent,
+        )
         try:
             candidate_metadata = os.stat(
                 candidate.name,
@@ -374,6 +471,7 @@ def link_local_file_if_absent(
         if not stat.S_ISREG(candidate_metadata.st_mode):
             raise ContractError(f"候選 artifact 必須是 regular file：{candidate}")
         _assert_parent_still_attached(target, _lexical_absolute(trusted_root), parent_fd)
+        linked = True
         try:
             os.link(
                 candidate.name,
@@ -383,7 +481,7 @@ def link_local_file_if_absent(
                 follow_symlinks=False,
             )
         except FileExistsError:
-            return False
+            linked = False
         except OSError as error:
             raise ContractError(f"無法以 no-clobber 方式發布 artifact：{target}") from error
         try:
@@ -395,7 +493,7 @@ def link_local_file_if_absent(
             _lexical_absolute(trusted_root),
             parent_fd,
         )
-        return True
+        return linked
     except BaseException as error:
         primary_error = error
         raise
@@ -407,11 +505,21 @@ def link_local_file_if_absent(
         )
 
 
-def remove_local_file(path: Path, trusted_root: Path) -> None:
+def remove_local_file(
+    path: Path,
+    trusted_root: Path,
+    *,
+    expected_parent_identity: DirectoryIdentity | None = None,
+) -> None:
     path = _lexical_absolute(path)
     parent_fd = _open_parent_directory(path, _lexical_absolute(trusted_root))
     primary_error = None
     try:
+        _assert_open_directory_identity(
+            parent_fd,
+            expected_parent_identity,
+            path.parent,
+        )
         try:
             os.unlink(path.name, dir_fd=parent_fd)
         except FileNotFoundError:
@@ -548,6 +656,21 @@ def _assert_parent_still_attached(
             f"關閉資料夾失敗：{target.parent}",
             primary_error,
         )
+
+
+def _assert_open_directory_identity(
+    directory_fd: int,
+    expected: DirectoryIdentity | None,
+    directory: Path,
+) -> None:
+    if expected is None:
+        return
+    try:
+        metadata = os.fstat(directory_fd)
+    except OSError as error:
+        raise ContractError(f"無法確認資料夾身分：{directory}") from error
+    if (metadata.st_dev, metadata.st_ino) != (expected.device, expected.inode):
+        raise ContractError(f"資料夾在操作期間遭替換：{directory}")
 
 
 def _cleanup_publication(

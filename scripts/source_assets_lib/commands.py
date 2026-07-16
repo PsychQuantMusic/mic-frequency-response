@@ -20,6 +20,9 @@ from .model import (
 from .network import ABSOLUTE_MAX_SIZE, DownloadRequest, RemoteHTTPError, Transport
 from .storage import (
     ArtifactStore,
+    DirectoryIdentity,
+    FileDigest,
+    capture_local_directory_identity,
     ensure_local_directory,
     inspect_local_file,
     link_local_file_if_absent,
@@ -101,9 +104,15 @@ def bootstrap(
     for manifest_path in manifest_paths:
         try:
             mic_dir = _validated_mic_directory(root, manifest_path)
+            mic_identity = capture_local_directory_identity(mic_dir, root)
             document = load_manifest(manifest_path, allow_pending=True)
             _validate_bootstrap_manifest(document, mic_dir, policy)
-            _ensure_source_directory(mic_dir, root)
+            source_dir = _ensure_source_directory(mic_dir, root)
+            source_identity = capture_local_directory_identity(source_dir, root)
+            if capture_local_directory_identity(mic_dir, root) != mic_identity:
+                raise ContractError(
+                    f"麥克風資料夾在 manifest 載入期間遭替換：{mic_dir}"
+                )
         except (SourceAssetError, OSError) as error:
             error = _classify_local_error(error)
             failed += 1
@@ -142,6 +151,7 @@ def bootstrap(
                     target,
                     artifact["media_type"],
                     request,
+                    source_identity,
                 )
             except _BootstrapRemoteHTTPFailure as failure:
                 error = failure.error
@@ -158,7 +168,11 @@ def bootstrap(
                     updated_artifact.pop("local_path", None)
                     updated_artifact.pop("media_type", None)
                     try:
-                        context.store.publish_manifest(manifest_path, updated_document)
+                        context.store.publish_manifest(
+                            manifest_path,
+                            updated_document,
+                            expected_parent_identity=mic_identity,
+                        )
                     except (SourceAssetError, OSError) as manifest_error:
                         manifest_error = _classify_local_error(manifest_error)
                         failed += 1
@@ -167,6 +181,8 @@ def bootstrap(
                             manifest_path,
                             mic_dir,
                             policy,
+                            root,
+                            mic_identity,
                         )
                         if recovered_document is None:
                             break
@@ -194,7 +210,11 @@ def bootstrap(
             updated_artifact["sha256"] = file_digest.sha256
             updated_artifact["retrieved_at"] = operation_timestamp
             try:
-                context.store.publish_manifest(manifest_path, updated_document)
+                context.store.publish_manifest(
+                    manifest_path,
+                    updated_document,
+                    expected_parent_identity=mic_identity,
+                )
             except (SourceAssetError, OSError) as error:
                 error = _classify_local_error(error)
                 failed += 1
@@ -203,6 +223,8 @@ def bootstrap(
                     manifest_path,
                     mic_dir,
                     policy,
+                    root,
+                    mic_identity,
                 )
                 if recovered_document is None:
                     break
@@ -241,9 +263,15 @@ def fetch(
     for manifest_path in manifest_paths:
         try:
             mic_dir = _validated_mic_directory(root, manifest_path)
+            mic_identity = capture_local_directory_identity(mic_dir, root)
             document = load_manifest(manifest_path, allow_pending=False)
             validate_manifest(document, mic_dir, policy, allow_pending=False)
-            _ensure_source_directory(mic_dir, root)
+            source_dir = _ensure_source_directory(mic_dir, root)
+            source_identity = capture_local_directory_identity(source_dir, root)
+            if capture_local_directory_identity(mic_dir, root) != mic_identity:
+                raise ContractError(
+                    f"麥克風資料夾在 manifest 載入期間遭替換：{mic_dir}"
+                )
         except (SourceAssetError, OSError) as error:
             error = _classify_local_error(error)
             failed += 1
@@ -257,8 +285,17 @@ def fetch(
                 continue
             try:
                 target = resolve_local_path(mic_dir, artifact["local_path"])
-                if local_file_exists(target, root):
-                    _verify_file(target, artifact, root)
+                if local_file_exists(
+                    target,
+                    root,
+                    expected_parent_identity=source_identity,
+                ):
+                    _verify_file(
+                        target,
+                        artifact,
+                        root,
+                        source_identity,
+                    )
                     available += 1
                     continue
                 request = DownloadRequest(
@@ -269,10 +306,13 @@ def fetch(
                     max_size=artifact["size_bytes"],
                     expected_sha256=artifact["sha256"],
                 )
-                _result, file_digest = context.store.publish_blob(
+                _result, file_digest = _download_fetch_blob(
+                    context,
+                    root,
                     target,
                     artifact["media_type"],
-                    lambda handle, request=request: context.transport.download(request, handle),
+                    request,
+                    source_identity,
                 )
                 if (
                     file_digest.size_bytes != artifact["size_bytes"]
@@ -473,6 +513,7 @@ def _download_bootstrap_blob(
     target: Path,
     media_type: str,
     request: DownloadRequest,
+    source_identity: DirectoryIdentity,
 ):
     producer = lambda handle: context.transport.download(request, handle)
     candidate = target.parent / (
@@ -484,19 +525,39 @@ def _download_bootstrap_blob(
             candidate,
             media_type,
             producer,
+            expected_parent_identity=source_identity,
         )
-        if link_local_file_if_absent(candidate, target, root):
-            installed_digest = inspect_local_file(target, media_type, root)
+        if link_local_file_if_absent(
+            candidate,
+            target,
+            root,
+            expected_parent_identity=source_identity,
+        ):
+            installed_digest = inspect_local_file(
+                target,
+                media_type,
+                root,
+                expected_parent_identity=source_identity,
+            )
             if installed_digest != candidate_digest:
                 raise IntegrityError(f"發布後 artifact 內容不符：{target}")
             return result, installed_digest
-        orphan_digest = inspect_local_file(target, media_type, root)
+        orphan_digest = inspect_local_file(
+            target,
+            media_type,
+            root,
+            expected_parent_identity=source_identity,
+        )
         if orphan_digest != candidate_digest:
             raise IntegrityError(f"既有 orphan 與重新下載內容不符：{target}")
         return result, orphan_digest
     except RemoteHTTPError as error:
         try:
-            had_orphan = local_file_exists(target, root)
+            had_orphan = local_file_exists(
+                target,
+                root,
+                expected_parent_identity=source_identity,
+            )
         except BaseException as state_error:
             primary_error = state_error
             raise
@@ -508,7 +569,11 @@ def _download_bootstrap_blob(
         raise
     finally:
         try:
-            remove_local_file(candidate, root)
+            remove_local_file(
+                candidate,
+                root,
+                expected_parent_identity=source_identity,
+            )
         except SourceAssetError as cleanup_error:
             if primary_error is None:
                 raise
@@ -516,13 +581,76 @@ def _download_bootstrap_blob(
                 primary_error.add_note(f"orphan 比對檔清理失敗：{cleanup_error}")
 
 
+def _download_fetch_blob(
+    context: CommandContext,
+    root: Path,
+    target: Path,
+    media_type: str,
+    request: DownloadRequest,
+    source_identity: DirectoryIdentity,
+):
+    if request.expected_size is None or request.expected_sha256 is None:
+        raise ContractError("fetch 下載必須固定 size 與 SHA-256")
+    producer = lambda handle: context.transport.download(request, handle)
+    candidate = target.parent / (
+        f".{target.name}.fetch-{secrets.token_hex(16)}.candidate"
+    )
+    primary_error = None
+    try:
+        result, candidate_digest = context.store.publish_blob(
+            candidate,
+            media_type,
+            producer,
+            expected_parent_identity=source_identity,
+        )
+        expected_digest = FileDigest(request.expected_size, request.expected_sha256)
+        if candidate_digest != expected_digest:
+            raise IntegrityError(f"下載內容與 manifest 不符：{target}")
+        link_local_file_if_absent(
+            candidate,
+            target,
+            root,
+            expected_parent_identity=source_identity,
+        )
+        installed_digest = inspect_local_file(
+            target,
+            media_type,
+            root,
+            expected_parent_identity=source_identity,
+        )
+        if installed_digest != expected_digest:
+            raise IntegrityError(f"既有 artifact 與 manifest 不符：{target}")
+        return result, installed_digest
+    except BaseException as error:
+        primary_error = error
+        raise
+    finally:
+        try:
+            remove_local_file(
+                candidate,
+                root,
+                expected_parent_identity=source_identity,
+            )
+        except SourceAssetError as cleanup_error:
+            if primary_error is None:
+                raise
+            if hasattr(primary_error, "add_note"):
+                primary_error.add_note(f"fetch 比對檔清理失敗：{cleanup_error}")
+
+
 def _recover_bootstrap_document(
     manifest_path: Path,
     mic_dir: Path,
     policy: Policy,
+    root: Path,
+    mic_identity: DirectoryIdentity,
 ) -> dict | None:
     try:
+        if capture_local_directory_identity(mic_dir, root) != mic_identity:
+            return None
         recovered = load_manifest(manifest_path, allow_pending=True)
+        if capture_local_directory_identity(mic_dir, root) != mic_identity:
+            return None
         _validate_bootstrap_manifest(recovered, mic_dir, policy)
     except (SourceAssetError, OSError):
         return None
@@ -605,8 +733,18 @@ def _validate_bootstrap_manifest(document: dict, mic_dir: Path, policy: Policy) 
     validate_manifest(staged, mic_dir, policy, allow_pending=True)
 
 
-def _verify_file(target: Path, artifact: dict, root: Path) -> None:
-    file_digest = inspect_local_file(target, artifact["media_type"], root)
+def _verify_file(
+    target: Path,
+    artifact: dict,
+    root: Path,
+    source_identity: DirectoryIdentity | None = None,
+) -> None:
+    file_digest = inspect_local_file(
+        target,
+        artifact["media_type"],
+        root,
+        expected_parent_identity=source_identity,
+    )
     if (
         file_digest.size_bytes != artifact["size_bytes"]
         or file_digest.sha256 != artifact["sha256"]
